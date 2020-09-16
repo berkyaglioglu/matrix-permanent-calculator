@@ -4,8 +4,9 @@ Parallel matrix permanent calculation in both CPU and GPU.
 # Experiments
 
 ## Load modules
-module load gcc/5.3.0
-module load cuda/10.0
+  * module load gcc/5.3.0
+  * module load cuda/10.0
+
 
 ## Compilation
 Compile the code with the following command.
