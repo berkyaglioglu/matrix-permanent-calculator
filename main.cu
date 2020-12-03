@@ -12,9 +12,8 @@ using namespace std;
 
 
 template <class T>
-void CallFunctions(T *mat, int *xadj, int *adj, T* val, int dim) {
-  unsigned long long int perman;
-  double start, end;
+void CallFunctions(T *mat, int *cptrs, int *rows, T *cvals, int *xadj, int *adj, T* val, int dim) {
+  double perman, start, end;
 /*
   start = omp_get_wtime();
   //perman = brute_w(xadj, adj, val, 2 * dim);
@@ -31,6 +30,12 @@ void CallFunctions(T *mat, int *xadj, int *adj, T* val, int dim) {
   end = omp_get_wtime();
   cout << "parallel_perman64: " << perman << " in " << (end - start) << endl;
 
+  start = omp_get_wtime();
+  perman = parallel_perman64_with_ccs(mat, dim, cptrs, rows, cvals);
+  end = omp_get_wtime();
+  cout << "parallel_perman64_with_ccs: " << perman << " in " << (end - start) << endl;
+
+/*
   start = omp_get_wtime();
   perman = gpu_perman64_xlocal(mat, dim);
   end = omp_get_wtime();
@@ -51,32 +56,25 @@ void CallFunctions(T *mat, int *xadj, int *adj, T* val, int dim) {
   end = omp_get_wtime();
   cout << "gpu_perman64_xshared_coalescing_mshared: " << perman << " in " << (end - start) << endl;
 
-/*
   start = omp_get_wtime();
-  perman = gpu_perman64_warplevel(mat, dim);
+  perman = gpu_perman64_xshared_coalescing_with_ccs(mat, cptrs, rows, cvals, dim);
   end = omp_get_wtime();
-  cout << "gpu_perman64_warplevel: " << perman << " in " << (end - start) << endl;
+  cout << "gpu_perman64_xshared_coalescing_with_ccs: " << perman << " in " << (end - start) << endl; 
 
   start = omp_get_wtime();
-  perman = sparser_perman64_w(xadj, adj, val, dim); 
+  perman = gpu_perman64_xshared_coalescing_mshared_with_ccs(mat, cptrs, rows, cvals, dim);
   end = omp_get_wtime();
-  cout << "sparser_perman64_w: " << perman << " in " << (end - start) << endl;
+  cout << "gpu_perman64_xshared_coalescing_mshared_with_ccs: " << perman << " in " << (end - start) << endl;
+
+  */
+
 
   start = omp_get_wtime();
-  perman = sparser_skip_perman64_w(xadj, adj, val, mat, dim);
+  perman = approximation_perman64(mat, dim);
   end = omp_get_wtime();
-  cout << "sparser_skip_perman64_w: " << perman << " in " << (end - start) << endl;
+  cout << "approximation_perman64: " << perman << " in " << (end - start) << endl;
 
-  start = omp_get_wtime();
-  perman = parallel_skip_perman64_w(xadj, adj, val, mat, dim);
-  end = omp_get_wtime();
-  cout << "parallel_skip_perman64_w: " << perman << " in " << (end - start) << endl;
 
-  start = omp_get_wtime();
-  perman = parallel_skip_perman64_w_balanced(xadj, adj, val, mat, dim);
-  end = omp_get_wtime();
-  cout << "parallel_skip_perman64_w_balanced: " << perman << " in " << (end - start) << endl;     
-*/
 }
 
 
@@ -139,7 +137,7 @@ int main(int argc, char** argv) {
 
   if (type == "int") {
     CreateMatrix(dim, density, binary);
-    int *mat, *val;
+    int *mat, *val, *cvals;
     ReadMatrix(mat, dim);
     for (int i = 0; i < dim; i++) {
       for(int j = 0; j < dim; j++) {
@@ -147,17 +145,26 @@ int main(int argc, char** argv) {
       }
       cout << endl;
     }
-    int *xadj, *adj;
+    int *xadj, *adj;//
     matrix2graph(mat, dim, xadj, adj, val);
-    CallFunctions(mat, xadj, adj, val, dim);
+    int *cptrs, *rows;
+    matrix2CCS(mat, dim, cptrs, rows, cvals);
+    CallFunctions(mat, cptrs, rows, cvals, xadj, adj, val, dim);
+    
     delete[] mat;
+    
     delete[] xadj;
     delete[] adj;
     delete[] val;
+
+    delete[] cptrs;
+    delete[] rows;
+    delete[] cvals;
+    
   }
   else if (type == "float") {
     CreateMatrix(dim, density, binary);
-    float *mat, *val;
+    float *mat, *val, *cvals;
     ReadMatrix(mat, dim);
     for (int i = 0; i < dim; i++) {
       for(int j = 0; j < dim; j++) {
@@ -167,15 +174,22 @@ int main(int argc, char** argv) {
     }
     int *xadj, *adj;
     matrix2graph(mat, dim, xadj, adj, val);
-    CallFunctions(mat, xadj, adj, val, dim);
+    int *cptrs, *rows;
+    matrix2CCS(mat, dim, cptrs, rows, cvals);
+    CallFunctions(mat, cptrs, rows, cvals, xadj, adj, val, dim);
     delete[] mat;
+
     delete[] xadj;
     delete[] adj;
     delete[] val;
+    
+    delete[] cptrs;
+    delete[] rows;
+    delete[] cvals;
   }
   else if (type == "double") {
     CreateMatrix(dim, density, binary);
-    double *mat, *val;
+    double *mat, *val, *cvals;
     ReadMatrix(mat, dim);
     for (int i = 0; i < dim; i++) {
       for(int j = 0; j < dim; j++) {
@@ -185,11 +199,18 @@ int main(int argc, char** argv) {
     }
     int *xadj, *adj;
     matrix2graph(mat, dim, xadj, adj, val);
-    CallFunctions(mat, xadj, adj, val, dim);
+    int *cptrs, *rows;
+    matrix2CCS(mat, dim, cptrs, rows, cvals);
+    CallFunctions(mat, cptrs, rows, cvals, xadj, adj, val, dim);
     delete[] mat;
+
     delete[] xadj;
     delete[] adj;
     delete[] val;
+
+    delete[] cptrs;
+    delete[] rows;
+    delete[] cvals;
   }
   else {
     cout << "Value for \"type\" is nonexist" << endl;

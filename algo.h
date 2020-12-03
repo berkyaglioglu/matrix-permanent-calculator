@@ -2,8 +2,228 @@
 #include <bitset>
 #include <omp.h>
 #include <string.h>
+#include "util.h"
 using namespace std;
 
+
+template <class T>
+unsigned long long int approximation_perman64(T* mat, int nov) {
+  double Xa = 1;
+  
+  T* A = new T[nov*nov];
+  for (int i = 0; i < nov; i++) {
+    for (int j = 0; j < nov; j++) {
+      A[i*nov + j] = mat[i*nov + j];
+    }
+  }
+
+  for (int i = 0; i < nov; i++) {
+    // dulmage-mendehlson filter part
+    T* A_filtered = new T[(nov - i) * (nov - i)];
+    for (int index = 0; index < (nov - i)*(nov - i); index++) {
+      A_filtered[index] = A[index];
+    }
+
+    int *xadj, *adj;
+    T *val;
+    matrix2graph(A_filtered, (nov - i), xadj, adj, val);
+
+    dulmage_mendehlson(A_filtered, xadj, adj, (nov - i), (nov - i)*2);
+    delete[] xadj;
+    delete[] adj;
+    delete[] val;
+
+    int row = -1;
+    for (int r = 0; r < (nov - i); r++) {
+      for (int c = 0; c < (nov - i); c++) {
+        if (A_filtered[r*(nov - i) + c] != 0) {
+          row = r;
+          break;
+        }
+      }
+    }
+    if (row == -1) {
+      delete[] A;
+      delete[] A_filtered;
+      break;
+    }
+
+    // Scale part
+    double* d_r = new double[nov - i];
+    double* d_c = new double[nov - i];
+    ScaleMatrix(A, (nov - i), d_r, d_c);
+    
+    // use scaled matrix for pj
+    double sum_row_of_S = 0;
+    double max_in_row_of_S = 0;
+    int col;
+    double s;
+    for (int j = 0; j < nov - i; j++) {
+      if (A[row*(nov - i) + j] != 0) {
+        s = d_r[0] * A[row*(nov - i) + j] * d_c[j];
+        sum_row_of_S += s;
+
+        if (A_filtered[row*(nov - i) + j] != 0 && s > max_in_row_of_S) {
+          max_in_row_of_S = s;
+          col = j;
+        }
+      }
+    }
+    
+    double pj = max_in_row_of_S / sum_row_of_S;
+    Xa /= pj;
+
+
+    // 
+
+    T* A_prev = A;
+    
+    if (i != (nov - 1)) {
+      int new_nov = nov - i - 1;
+      
+      A = new T[new_nov * new_nov];
+
+      for (int r = 0; r < new_nov; r++) {
+        for (int c = 0; c < new_nov; c++) {
+          if (r < row && c < col) {
+            A[r*new_nov + c] = A_prev[r*(new_nov + 1) + c];
+          } else if (r < row) {
+            A[r*new_nov + c] = A_prev[(r + 1)*(new_nov + 1) + c];
+          } else if (c < col) {
+            A[r*new_nov + c] = A_prev[r*(new_nov + 1) + (c + 1)];
+          } else {
+            A[r*new_nov + c] = A_prev[(r + 1)*(new_nov + 1) + (c + 1)];
+          }
+        }
+      }
+    }
+    
+    delete[] A_prev;
+    delete[] A_filtered;
+    delete[] d_r;
+    delete[] d_c;
+
+    // row col check if they are all zero, then break
+    bool check = false;
+    int row_elts = 0, col_elts = 0;
+    for (int m = 0; m < (nov - i - 1); m++) {
+      row_elts = 0; col_elts = 0;
+      for (int n = 0; n < (nov - i - 1); n++) {
+        if (A[m*(nov-i-1) + n] != 0) {
+          row_elts++;
+        }
+        if (A[n*(nov-i-1) + m] != 0) {
+          col_elts++;
+        }
+        if (row_elts != 0 && col_elts != 0) {
+          break;
+        }
+      }
+      if (row_elts == 0 || col_elts == 0) {
+        check = true;
+        break;
+      }
+    }
+
+    if (check) {
+      delete[] A;
+      break;
+    }
+  }
+
+  return Xa;
+}
+
+template <class T>
+unsigned long long int parallel_perman64_with_ccs(T* mat, int nov, int* cptrs, int* rows, T* cvals) {
+  const int a = omp_get_max_threads();
+  double x[64];   
+  double rs; //row sum
+  double p = 1; //product of the elements in vector 'x'
+  
+  //create the x vector and initiate the permanent
+  for (int j = 0; j < nov; j++) {
+    rs = .0f;
+    for (int k = 0; k < nov; k++) {
+      rs += mat[(j * nov) + k];  // sum of row j
+    }
+    x[j] = mat[(j * nov) + (nov-1)] - rs/2;  // see Nijenhuis and Wilf - x vector entry
+    p *= x[j];   // product of the elements in vector 'x'
+  }
+
+  unsigned long long one = 1;
+  unsigned long long start = 1;
+  unsigned long long end = (1ULL << (nov-1));
+  
+  int nt = omp_get_max_threads();
+  unsigned long long chunk_size = end / nt + 1;
+
+  #pragma omp parallel num_threads(nt) firstprivate(x)
+  { 
+    int tid = omp_get_thread_num();
+    unsigned long long my_start = start + tid * chunk_size;
+    unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+    
+    double s;  //+1 or -1 
+    double prod; //product of the elements in vector 'x'
+    double my_p = 0;
+    unsigned long long i = my_start;
+    unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+
+    for (int k = 0; k < (nov-1); k++) {
+      if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+        for (int j = cptrs[k]; j < cptrs[k+1]; j++) {
+          x[rows[j]] += cvals[j]; // see Nijenhuis and Wilf - update x vector entries
+        }
+      }
+    }
+
+    prod = 1.0;
+    int zero_num = 0;
+    for (int j = 0; j < nov; j++) {
+      if (x[j] == 0) {
+        zero_num++;
+      } else {
+        prod *= x[j];  //product of the elements in vector 'x'
+      }
+    }
+    int k;
+    while (i < my_end) {
+      //compute the gray code
+      k = __builtin_ctzll(i);
+      gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
+      //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
+      s = ((one << k) & gray) ? 1 : -1;
+      
+      for (int j = cptrs[k]; j < cptrs[k+1]; j++) {
+        if (x[rows[j]] == 0) {
+          zero_num--;
+          x[rows[j]] += s * cvals[j]; // see Nijenhuis and Wilf - update x vector entries
+          prod *= x[rows[j]];  //product of the elements in vector 'x'
+        } else {
+          prod /= x[rows[j]];
+          x[rows[j]] += s * cvals[j]; // see Nijenhuis and Wilf - update x vector entries
+          if (x[rows[j]] == 0) {
+            zero_num++;
+          } else {
+            prod *= x[rows[j]];  //product of the elements in vector 'x'
+          }
+        }
+      }
+
+      if(zero_num == 0) {
+        my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+      }
+      
+      i++;
+    }
+
+    #pragma omp critical
+      p += my_p;
+  }
+
+  return((4*(nov&1)-2) * p);
+}
 
 template <class T>
 unsigned long long int parallel_perman64(T* mat, int nov) {
