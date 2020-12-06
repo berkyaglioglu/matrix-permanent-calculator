@@ -80,65 +80,75 @@ void CallFunctions(T *mat, int *cptrs, int *rows, T *cvals, int *xadj, int *adj,
 
 
 int main(int argc, char** argv) {
-	int dim = -1;
-	double density = -1;
-	bool binary = false;
+  int dim = -1;
+  double density = -1;
+  bool binary = false;
+  string str_dim, str_density;
 
-	for (int i = 1; i < argc; i++) {
-		string arg = argv[i];
-		if (arg == "-d") {
-			i++;
-			if (i < argc) {
-				dim = atoi(argv[i]);
-				if (dim <= 0) {
-					cout << "Value for \"-d\" is invalid" << endl; 
-					exit(1);
-				}
-			}
-			else {
-				cout << "Missing value for \"-d\"" << endl;
-				exit(1);
-			}
-		}
-		else if (arg == "-t") {
-			i++;
-			if (i < argc) {
-				density = atof(argv[i]);
-				if (density <= 0) {
-					cout << "Value for \"-t\" is invalid" << endl; 
-					exit(1);
-				}
-			}
-			else {
-				cout << "Missing value for \"-t\"" << endl;
-				exit(1);
-			}
-		}
-		else if (arg == "-b") {
-			binary = true;
-		}
-		else {
-			cout << "Invalid parameters" << endl;
-			exit(1);
-		}
-	}
-	if(dim <= 0) {
-		cout << "Value for \"-d\" is missing" << endl; 
-		exit(1);
-	}
-	else if (density <= 0) {
-		cout << "Value for \"-t\" is missing" << endl;
-		exit(1);
-	}
+  for (int i = 1; i < argc; i++) {
+    string arg = argv[i];
+    if (arg == "-d") {
+      i++;
+      if (i < argc) {
+        str_dim = argv[i];
+        dim = atoi(argv[i]);
+        if (dim <= 0) {
+          cout << "Value for \"-d\" is invalid" << endl; 
+          exit(1);
+        }
+      }
+      else {
+        cout << "Missing value for \"-d\"" << endl;
+        exit(1);
+      }
+    }
+    else if (arg == "-t") {
+      i++;
+      if (i < argc) {
+        str_density = argv[i];
+        density = atof(argv[i]);
+        if (density <= 0) {
+          cout << "Value for \"-t\" is invalid" << endl; 
+          exit(1);
+        }
+      }
+      else {
+        cout << "Missing value for \"-t\"" << endl;
+        exit(1);
+      }
+    }
+    else if (arg == "-b") {
+      binary = true;
+    }
+    else {
+      cout << "Invalid parameters" << endl;
+      exit(1);
+    }
+  }
+  if(dim <= 0) {
+    cout << "Value for \"-d\" is missing" << endl; 
+    exit(1);
+  }
+  else if (density <= 0) {
+    cout << "Value for \"-t\" is missing" << endl;
+    exit(1);
+  }
 
   string type;
   cout << "Enter the type of the matrix(\"int\", \"float\", or \"double\"): " << endl;
   cin >> type;
 
+  string filename;
+  if (binary) {
+    filename = "sample/binary/" + str_dim + "_" + str_density + "_(1).txt";
+  } else {
+    filename = "sample/generic/" + str_dim + "_" + str_density + "_(1).txt";
+  }
+
   if (type == "int") {
-    CreateMatrix(dim, density, binary);
+    //CreateMatrix(dim, density, binary);
     int *mat, *val, *cvals;
-    ReadMatrix(mat, dim);
+    ReadMatrix(mat, dim, filename);
     for (int i = 0; i < dim; i++) {
       for(int j = 0; j < dim; j++) {
         cout << mat[i*dim+j] << " ";
@@ -163,9 +173,9 @@ int main(int argc, char** argv) {
     
   }
   else if (type == "float") {
-    CreateMatrix(dim, density, binary);
+    //CreateMatrix(dim, density, binary);
     float *mat, *val, *cvals;
-    ReadMatrix(mat, dim);
+    ReadMatrix(mat, dim, filename);
     for (int i = 0; i < dim; i++) {
       for(int j = 0; j < dim; j++) {
         cout << mat[i*dim+j] << " ";
@@ -188,9 +198,9 @@ int main(int argc, char** argv) {
     delete[] cvals;
   }
   else if (type == "double") {
-    CreateMatrix(dim, density, binary);
+    //CreateMatrix(dim, density, binary);
     double *mat, *val, *cvals;
-    ReadMatrix(mat, dim);
+    ReadMatrix(mat, dim, filename);
     for (int i = 0; i < dim; i++) {
       for(int j = 0; j < dim; j++) {
         cout << mat[i*dim+j] << " ";
@@ -217,6 +227,6 @@ int main(int argc, char** argv) {
     exit(1);
   }
 
-	return 0;
+  return 0;
 }
 

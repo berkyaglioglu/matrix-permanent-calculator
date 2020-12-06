@@ -328,7 +328,7 @@ void CreateMatrix(int dim, double density, bool binary) {
 					outFile << i << " " << j << " " << 1 << endl;
 				}
 				else {
-					outFile << i << " " << j << " " << (rand() % 10 + 1) << endl;
+					outFile << i << " " << j << " " << (rand() % 5 + 1) << endl;
 				}
 			}
 			else {
@@ -341,8 +341,8 @@ void CreateMatrix(int dim, double density, bool binary) {
 }
 
 template <class T>
-void ReadMatrix(T* & mat, int dim) {
-	ifstream inFile("matrix.txt");
+void ReadMatrix(T* & mat, int dim, string filename) {
+	ifstream inFile(filename);
 	mat = new T[dim * dim];
 	int* row_degs = new int[dim];
 	int* col_degs = new int[dim];
