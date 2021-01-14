@@ -5,6 +5,194 @@
 #include "util.h"
 using namespace std;
 
+template <class T>
+unsigned long long int rasmussen_crs_ccs(T* mat, int nov, int number_of_times) {
+  int total = 0;
+  for (int i = 0; i < nov*nov; i++) {
+    if (mat[i] > 0) {
+      total++;
+    }
+  }
+
+  int curr_elt_r = 0;
+  int curr_elt_c = 0;
+  int cptrs[nov + 1];
+  int rows[total];
+  int rptrs[nov + 1];
+  int cols[total];
+  
+  for (int i = 0; i < nov; i++) {
+    rptrs[i] = curr_elt_r;
+    cptrs[i] = curr_elt_c;
+    for(int j = 0; j < nov; j++) {
+      if (mat[i*nov + j] > 0) {
+        cols[curr_elt_r] = j;
+        curr_elt_r++;        
+      }
+      if (mat[j*nov + i] > 0) {
+        rows[curr_elt_c] = j;
+        curr_elt_c++;
+      }
+    }
+  }
+  rptrs[nov] = curr_elt_r;
+  cptrs[nov] = curr_elt_c;
+
+  srand(time(0));
+
+  int nt = omp_get_max_threads();
+
+  double sum_perm = 0;
+  double sum_zeros = 0;
+    
+  #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
+    for (int time = 0; time < number_of_times; time++) {
+      int row_nnz[nov];
+      bool col_extracted[nov];
+      
+      for (int i = 0; i < nov; i++) {
+        row_nnz[i] = rptrs[i+1] - rptrs[i];
+        col_extracted[i] = false;
+      }
+      
+      double perm = 1;
+      
+      for (int row = 0; row < nov; row++) {
+        // multiply permanent with number of nonzeros in the current row
+        perm *= row_nnz[row];
+
+        // choose the column to be extracted randomly
+        int random = rand() % row_nnz[row];
+        int col;
+        for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
+          int c = cols[i];
+          if (!col_extracted[c]) {
+            if (random == 0) {
+              col = c;
+              break;
+            } else {
+              random--;
+            }        
+          }
+        }
+
+        // exract the column
+        col_extracted[col] = true;
+
+        // update number of nonzeros of the rows after extracting the column
+        bool zero_row = false;
+        for (int i = cptrs[col+1]-1; i >= cptrs[col]; i--) {
+          int r = rows[i];
+          if (r > row) {
+            row_nnz[r]--;
+            if (row_nnz[r] == 0) {
+              zero_row = true;
+              break;
+            }
+          } else {
+            break;
+          }
+        }
+
+        if (zero_row) {
+          perm = 0;
+          sum_zeros += 1;
+          break;
+        }
+      }
+
+      sum_perm += perm;
+    }
+
+  cout << "number of zeros: " << sum_zeros << endl;
+  
+  return (sum_perm / number_of_times);
+}
+
+template <class T>
+unsigned long long int rasmussen(T* mat, int nov, int number_of_times) {
+  T* mat_t = new T[nov * nov];
+  
+  for (int i = 0; i < nov; i++) {
+    for (int j = 0; j < nov; j++) {
+      mat_t[(j * nov) + i] = mat[(i * nov) + j];
+    }
+  }
+
+  srand(time(0));
+
+  int nt = omp_get_max_threads();
+
+  double sum_perm = 0;
+  double sum_zeros = 0;
+    
+  #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
+    for (int time = 0; time < number_of_times; time++) {
+      int row_nnz[nov];
+      bool col_extracted[nov];
+      
+      for (int i = 0; i < nov; i++) {
+        row_nnz[i] = 0;
+        col_extracted[i] = false;
+        for (int j = 0; j < nov; j++) {
+          if (mat[(i * nov) + j] != 0) {
+            row_nnz[i] += 1;
+          }
+        }
+      }
+      
+      double perm = 1;
+      
+      for (int row = 0; row < nov; row++) {
+        // multiply permanent with number of nonzeros in the current row
+        perm *= row_nnz[row];
+
+        // choose the column to be extracted randomly
+        int random = rand() % row_nnz[row];
+        int col;
+        for (int c = 0; c < nov; c++) {
+          if (!col_extracted[c] && mat[row * nov + c] != 0) {
+            if (random == 0) {
+              col = c;
+              break;
+            } else {
+              random--;
+            }        
+          }
+        }
+
+        // exract the column
+        col_extracted[col] = true;
+
+        // update number of nonzeros of the rows after extracting the column
+        bool zero_row = false;
+        for (int r = row + 1; r < nov; r++) {
+          if (mat_t[col * nov + r] != 0) {
+            row_nnz[r]--;
+            if (row_nnz[r] == 0) {
+              zero_row = true;
+              break;
+            }
+          }
+        }
+
+        if (zero_row) {
+          perm = 0;
+          sum_zeros += 1;
+          break;
+        }
+      }
+
+      sum_perm += perm;
+    }
+
+  delete[] mat_t;
+
+  cout << "number of zeros: " << sum_zeros << endl;
+  
+  return (sum_perm / number_of_times);
+}
+
 
 template <class T>
 unsigned long long int approximation_perman64(T* mat, int nov) {

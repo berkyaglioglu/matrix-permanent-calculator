@@ -1,5 +1,7 @@
 #include <omp.h>
 #include <stdio.h>
+#include <curand.h>
+#include <curand_kernel.h>
 using namespace std;
 
 #define BLOCK_SIZE    256
@@ -270,6 +272,67 @@ __global__ void kernel_xshared_coalescing_mshared(T* mat_t, double* x, double* p
   
 }
 
+template <class T>
+__global__ void kernel_rasmussen(T* mat, double* p, unsigned int seed, int nov) {
+  int tid = threadIdx.x + (blockIdx.x * blockDim.x);
+  int thread_id = threadIdx.x;
+  int block_dim = blockDim.x;
+
+  extern __shared__ float shared_mem[]; 
+  T *shared_mat = (T*) shared_mem; // size = nov * nov
+
+  for (int k = 0; k < ((nov*nov)/block_dim + 1); k++) {
+    if ((block_dim * k + thread_id) < (nov * nov))
+    shared_mat[block_dim * k + thread_id] = mat[block_dim * k + thread_id];
+  }
+
+  __syncthreads();
+
+  curandState_t state;
+  curand_init(tid,0,0,&state);
+
+  long col_extracted = 0;
+  
+  double perm = 1;
+  
+  for (int row = 0; row < nov; row++) {
+    // multiply permanent with number of nonzeros in the current row
+    int nnz = 0;
+    for (int c = 0; c < nov; c++) {
+      if (!((col_extracted >> c) & 1L) && shared_mat[row * nov + c] != 0) {
+        nnz++;
+      }
+    }
+    if (nnz == 0) {
+      perm = 0;
+      break;
+    }
+    perm *= nnz;
+
+    // choose the column to be extracted randomly
+    int random = curand_uniform(&state) / (1.0 / float(nnz));
+    int col;
+
+    if (random >= nnz) {
+      random = nnz - 1;
+    }
+    for (int c = 0; c < nov; c++) {
+      if (!((col_extracted >> c) & 1L) && shared_mat[row * nov + c] != 0) {
+        if (random == 0) {
+          col = c;
+          break;
+        } else {
+          random--;
+        }        
+      }
+    }
+
+    // exract the column
+    col_extracted |= (1L << col);
+  }
+
+  p[tid] = perm;
+}
 
 
 template <class T>
@@ -504,6 +567,42 @@ unsigned long long int gpu_perman64_xshared_coalescing_mshared(T* mat, int nov) 
   return((4*(nov&1)-2) * p);
 }
 
+template <class T>
+unsigned long long int gpu_perman64_rasmussen(T* mat, int nov) {
+  int grid_size = 1024*1024;
+  int block_size = 1024;
+
+  cudaSetDevice(1);
+  T *d_mat;
+  double *d_p;
+  double *h_p = new double[grid_size * block_size];
+
+  cudaMalloc( &d_p, (grid_size * block_size) * sizeof(double));
+  cudaMalloc( &d_mat, (nov * nov) * sizeof(T));
+
+  cudaMemcpy( d_mat, mat, (nov * nov) * sizeof(T), cudaMemcpyHostToDevice);
+
+  double stt = omp_get_wtime();
+  kernel_rasmussen<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, time(NULL), nov);
+  cudaDeviceSynchronize();
+  double enn = omp_get_wtime();
+  cout << "kernel" << " in " << (enn - stt) << endl;
+  
+  cudaMemcpy( h_p, d_p, grid_size * block_size * sizeof(double), cudaMemcpyDeviceToHost);
+
+  cudaFree(d_mat);
+  cudaFree(d_p);
+
+  double p = 0;
+  #pragma omp parallel for num_threads(omp_get_max_threads()) reduction(+:p)
+    for (int i = 0; i < grid_size * block_size; i++) {
+      p += h_p[i];
+    }
+
+  delete[] h_p;
+
+  return (p / (grid_size * block_size));
+}
 
 
 // ####################################################################################################
