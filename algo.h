@@ -5,6 +5,143 @@
 #include "util.h"
 using namespace std;
 
+
+template <class T>
+unsigned long long int greedy(T* mat, int nov, int number_of_times) {
+  T* mat_t = new T[nov * nov];
+  
+  for (int i = 0; i < nov; i++) {
+    for (int j = 0; j < nov; j++) {
+      mat_t[(j * nov) + i] = mat[(i * nov) + j];
+    }
+  }
+
+  srand(time(0));
+
+  int nt = omp_get_max_threads();
+
+  double sum_perm = 0;
+  double sum_zeros = 0;
+  
+  #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
+    for (int time = 0; time < number_of_times; time++) {
+      int row_nnz[nov];
+      int col_nnz[nov];
+      bool row_extracted[nov];
+      bool col_extracted[nov];
+      
+      for (int i = 0; i < nov; i++) {
+        row_nnz[i] = 0;
+        col_nnz[i] = 0;
+        row_extracted[i] = false;
+        col_extracted[i] = false;
+        for (int j = 0; j < nov; j++) {
+          if (mat[(i * nov) + j] != 0) {
+            row_nnz[i] += 1;
+          }
+          if (mat_t[(i * nov) + j] != 0) {
+            col_nnz[i] += 1;
+          }
+        }
+      }
+      
+      double perm = 1;
+      int row, col, deg;
+      float sum_pk, pk, random;
+      
+      for (int i = 0; i < nov; i++) {
+        // choose the row to be extracted
+        deg = nov+1;
+        for (int l = 0; l < nov; l++) {
+          if (!row_extracted[l] && row_nnz[l] < deg) {
+            row = l;
+            deg = row_nnz[l];
+          }
+        }
+
+        // compute sum of probabilities, when finding deg = 1, set col
+        sum_pk = 0;
+        col = -1;
+        for (int k = 0; k < nov; k++) {
+          if (!col_extracted[k] && mat[row * nov + k] != 0) {
+            if (col_nnz[k] == 1) {
+              col = k;
+              break;
+            }
+            sum_pk += 1 / float(col_nnz[k] - 1);
+          }
+        }
+
+        // choose the col to be extracted if not chosen already
+        if (col == -1) {
+          random = (float(rand()) / RAND_MAX) * sum_pk;
+          sum_pk = 0;
+          for (int k = 0; k < nov; k++) {
+            if (!col_extracted[k] && mat[row * nov + k] != 0) {
+              sum_pk += 1 / float(col_nnz[k] - 1);
+              if (random <= sum_pk) {
+                col = k;
+                pk = 1 / float(col_nnz[k] - 1);
+                break;
+              }
+            }
+          }
+        } else {
+          pk = 1;
+        }
+        
+        // multiply permanent with 1 / pk
+        perm /= pk;
+
+        // extract row and col
+        row_extracted[row] = true;
+        col_extracted[col] = true;
+
+        // update number of nonzeros of the rows and cols after extraction
+        bool zero_row = false;
+        for (int r = 0; r < nov; r++) {
+          if (!row_extracted[r] && mat_t[col * nov + r] != 0) {
+            row_nnz[r]--;
+            if (row_nnz[r] == 0) {
+              zero_row = true;
+              break;
+            }
+          }
+        }
+
+        if (zero_row) {
+          perm = 0;
+          sum_zeros += 1;
+          break;
+        }
+
+        for (int c = 0; c < nov; c++) {
+          if (!col_extracted[c] && mat[row * nov + c] != 0) {
+            col_nnz[c]--;
+            if (col_nnz[c] == 0) {
+              zero_row = true;
+              break;
+            }
+          }
+        }
+
+        if (zero_row) {
+          perm = 0;
+          sum_zeros += 1;
+          break;
+        }
+      }
+
+      sum_perm += perm;
+    }
+
+  delete[] mat_t;
+
+  cout << "number of zeros: " << sum_zeros << endl;
+  
+  return (sum_perm / number_of_times);
+}
+
 template <class T>
 unsigned long long int rasmussen_crs_ccs(T* mat, int nov, int number_of_times) {
   int total = 0;
@@ -193,133 +330,72 @@ unsigned long long int rasmussen(T* mat, int nov, int number_of_times) {
   return (sum_perm / number_of_times);
 }
 
-
 template <class T>
-unsigned long long int approximation_perman64(T* mat, int nov) {
-  double Xa = 1;
-  
-  T* A = new T[nov*nov];
-  for (int i = 0; i < nov; i++) {
-    for (int j = 0; j < nov; j++) {
-      A[i*nov + j] = mat[i*nov + j];
-    }
-  }
+unsigned long long int approximation_perman64(T* mat, int nov, int number_of_times) {
 
-  for (int i = 0; i < nov; i++) {
-    // dulmage-mendehlson filter part
-    T* A_filtered = new T[(nov - i) * (nov - i)];
-    for (int index = 0; index < (nov - i)*(nov - i); index++) {
-      A_filtered[index] = A[index];
-    }
+  srand(time(0));
 
-    int *xadj, *adj;
-    T *val;
-    matrix2graph(A_filtered, (nov - i), xadj, adj, val);
+  int nt = omp_get_max_threads();
 
-    dulmage_mendehlson(A_filtered, xadj, adj, (nov - i), (nov - i)*2);
-    delete[] xadj;
-    delete[] adj;
-    delete[] val;
+  double sum_perm = 0;
+  double sum_zeros = 0;
+    
+  #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
+    for (int time = 0; time < number_of_times; time++) {
+      long col_extracted = 0;
 
-    int row = -1;
-    for (int r = 0; r < (nov - i); r++) {
-      for (int c = 0; c < (nov - i); c++) {
-        if (A_filtered[r*(nov - i) + c] != 0) {
-          row = r;
+      double Xa = 1;
+      bool is_break = false;
+      double d_r[nov];
+      double d_c[nov];
+
+      for (int row = 0; row < nov; row++) {
+        // Scale part
+        bool success = ScaleMatrix(mat, nov, row, col_extracted, d_r, d_c);
+        if (!success) {
+          Xa = 0;
+          sum_zeros++;
           break;
         }
-      }
-    }
-    if (row == -1) {
-      delete[] A;
-      delete[] A_filtered;
-      break;
-    }
-
-    // Scale part
-    double* d_r = new double[nov - i];
-    double* d_c = new double[nov - i];
-    ScaleMatrix(A, (nov - i), d_r, d_c);
-    
-    // use scaled matrix for pj
-    double sum_row_of_S = 0;
-    double max_in_row_of_S = 0;
-    int col;
-    double s;
-    for (int j = 0; j < nov - i; j++) {
-      if (A[row*(nov - i) + j] != 0) {
-        s = d_r[0] * A[row*(nov - i) + j] * d_c[j];
-        sum_row_of_S += s;
-
-        if (A_filtered[row*(nov - i) + j] != 0 && s > max_in_row_of_S) {
-          max_in_row_of_S = s;
-          col = j;
-        }
-      }
-    }
-    
-    double pj = max_in_row_of_S / sum_row_of_S;
-    Xa /= pj;
-
-
-    // 
-
-    T* A_prev = A;
-    
-    if (i != (nov - 1)) {
-      int new_nov = nov - i - 1;
-      
-      A = new T[new_nov * new_nov];
-
-      for (int r = 0; r < new_nov; r++) {
-        for (int c = 0; c < new_nov; c++) {
-          if (r < row && c < col) {
-            A[r*new_nov + c] = A_prev[r*(new_nov + 1) + c];
-          } else if (r < row) {
-            A[r*new_nov + c] = A_prev[(r + 1)*(new_nov + 1) + c];
-          } else if (c < col) {
-            A[r*new_nov + c] = A_prev[r*(new_nov + 1) + (c + 1)];
-          } else {
-            A[r*new_nov + c] = A_prev[(r + 1)*(new_nov + 1) + (c + 1)];
+        
+        // use scaled matrix for pj
+        double sum_row_of_S = 0;
+        for (int j = 0; j < nov; j++) {
+          if (!((col_extracted >> j) & 1L) && mat[(row * nov) + j] != 0) {
+            sum_row_of_S += d_r[row] * mat[(row * nov) + j] * d_c[j];
           }
         }
-      }
-    }
-    
-    delete[] A_prev;
-    delete[] A_filtered;
-    delete[] d_r;
-    delete[] d_c;
 
-    // row col check if they are all zero, then break
-    bool check = false;
-    int row_elts = 0, col_elts = 0;
-    for (int m = 0; m < (nov - i - 1); m++) {
-      row_elts = 0; col_elts = 0;
-      for (int n = 0; n < (nov - i - 1); n++) {
-        if (A[m*(nov-i-1) + n] != 0) {
-          row_elts++;
+        double random = (double(rand()) / RAND_MAX) * sum_row_of_S;
+        double temp = 0;
+        double s, pj;
+        int col;
+        for (int j = 0; j < nov; j++) {
+          if (!((col_extracted >> j) & 1L) && mat[(row * nov) + j] != 0) {
+            s = d_r[row] * mat[(row * nov) + j] * d_c[j];
+            temp += s;
+            if (random <= temp) {
+              col = j;
+              pj = s / sum_row_of_S;
+              break;
+            }
+          }
         }
-        if (A[n*(nov-i-1) + m] != 0) {
-          col_elts++;
-        }
-        if (row_elts != 0 && col_elts != 0) {
-          break;
-        }
-      }
-      if (row_elts == 0 || col_elts == 0) {
-        check = true;
-        break;
-      }
-    }
 
-    if (check) {
-      delete[] A;
-      break;
-    }
-  }
+        // update Xa
+        Xa /= pj;
+        
+        // exract the column
+        col_extracted |= (1L << col);
 
-  return Xa;
+      }
+
+      sum_perm += Xa;
+    }
+  
+  cout << "number of zeros: " << sum_zeros << endl;
+  
+  return (sum_perm / number_of_times);
 }
 
 template <class T>

@@ -342,7 +342,7 @@ void CreateMatrix(int dim, double density, bool binary) {
 
 template <class T>
 void ReadMatrix(T* & mat, int dim, string filename) {
-	ifstream inFile(filename);
+	ifstream inFile("matrix.txt");
 	mat = new T[dim * dim];
 	int* row_degs = new int[dim];
 	int* col_degs = new int[dim];
@@ -469,27 +469,60 @@ void matrix2CCS(T* mat, int nov, int*& cptrs, int*& rows, T*& cvals) {
 
 
 template <class T>
-void ScaleMatrix(T* M, int dim, double* d_r, double* d_c) {
+bool ScaleMatrix(T* M, int nov, int row, long col_extracted, double d_r[], double d_c[]) {
+
+	for (int i = 0; i < nov; i++) {
+		d_r[i] = 1;
+		d_c[i] = 1;
+	}
+
+	for (int k = 0; k < 5; k++) {
+
+		for (int j = 0; j < nov; j++) {
+			if (!((col_extracted >> j) & 1L)) {
+				double col_sum = 0;
+				for (int i = row; i < nov; i++) {
+					col_sum += d_r[i] * M[i*nov + j];
+				}
+				if (col_sum == 0) {
+					return false;
+				}
+				d_c[j] = 1 / col_sum;
+			}
+		}
+		for (int i = row; i < nov; i++) {
+			double row_sum = 0;
+			for (int j = 0; j < nov; j++) {
+				if (!((col_extracted >> j) & 1L)) {
+					row_sum += M[i*nov + j] * d_c[j];
+				}
+			}
+			if (row_sum == 0) {
+				return false;
+			}
+			d_r[i] = 1 / row_sum;
+		}
+	}
+
+	return true;
+}
+
+template <class T>
+void ScaleMatrix_(T* M, int dim, double* d_r, double* d_c) {
 
 	for (int i = 0; i < dim; i++) {
 		d_r[i] = 1;
 		d_c[i] = 1;
 	}
 
-	double* csum = new double[dim];
-
-	for (int j = 0; j < dim; j++) {
-		double col_sum = 0;
-		for (int i = 0; i < dim; i++) {
-			col_sum += M[i*dim + j];
-		}
-		csum[j] += col_sum;
-	}
-
 	for (int k = 0; k < 10; k++) {
 
 		for (int j = 0; j < dim; j++) {
-			d_c[j] = 1 / csum[j];
+			double col_sum = 0;
+			for (int i = 0; i < dim; i++) {
+				col_sum += d_r[i] * M[i*dim + j];
+			}
+			d_c[j] = 1 / col_sum;
 		}
 		for (int i = 0; i < dim; i++) {
 			double row_sum = 0;
@@ -498,16 +531,8 @@ void ScaleMatrix(T* M, int dim, double* d_r, double* d_c) {
 			}
 			d_r[i] = 1 / row_sum;
 		}
-		for (int j = 0; j < dim; j++) {
-			double col_sum = 0;
-			for (int i = 0; i < dim; i++) {
-				col_sum += d_r[i] * M[i*dim + j];
-			}
-			csum[j] += col_sum;
-		}
 	}
-
-	delete [] csum;
 }
+
 
 #endif
