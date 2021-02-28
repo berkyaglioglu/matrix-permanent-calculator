@@ -202,14 +202,14 @@ void dulmage_mendehlson(T *mat, int *xadj, int *adj, int hnov, int nov) {
     if(rmatch[i] >= 0) {
       mcount++;
       if(cmatch[rmatch[i]] != i) {
-      	//cout << "Weird matching " << endl;
+      	cout << "Weird matching " << endl;
       	exit(1);
       }
     }
   }
-  //cout << "Match count is " << mcount << endl;
+  cout << "Match count is " << mcount << endl;
   if(mcount != hnov) {
-    //cout << "Perman is 0" << endl;
+    cout << "Perman is 0" << endl;
     exit(1);
   }
 
@@ -259,13 +259,11 @@ void dulmage_mendehlson(T *mat, int *xadj, int *adj, int hnov, int nov) {
     }
   }
   
-  //cout << "comps: ";
-  /*
+  cout << "comps: ";
   for(vtype i = 0; i < hnov; i++) {
     cout << component[i] << " ";
   }
   cout << endl;
-  */
 
   vtype erased = 0;
   ptr = 0;
@@ -295,7 +293,7 @@ void dulmage_mendehlson(T *mat, int *xadj, int *adj, int hnov, int nov) {
     }
     xadj[i+1] = ptr;
   }
-  //cout << "no erased edges: " << erased << endl;
+  cout << "no erased edges: " << erased << endl;
 
   delete [] component;
   delete [] visit1;
@@ -310,90 +308,51 @@ void dulmage_mendehlson(T *mat, int *xadj, int *adj, int hnov, int nov) {
 }
 
 
+/*
+void CreateMatrix(int dim, double density, bool binary, string file) {
+	ofstream outFile(file);
 
-void CreateMatrix(int dim, double density, bool binary) {
-	ofstream outFile("matrix.txt");
-	if (binary) {
-		outFile << dim << " " << "binary" << endl;
-	}
-	else {
-		outFile << dim << " " << "generic" << endl;
-	}
+	string text = "";
+	int nnz = 0;
 
-	srand(time(0));
 	for (int i = 0; i < dim; i++) {
 		for (int j = 0; j < dim; j++) {
 			if ((rand() % 100) < (100 * density)) {
+				nnz++;
 				if (binary) {
-					outFile << i << " " << j << " " << 1 << endl;
+					text += to_string(i) + " " + to_string(j) + " 1\n";
 				}
 				else {
-					outFile << i << " " << j << " " << (rand() % 5 + 1) << endl;
+					text += to_string(i) + " " + to_string(j) + " " + to_string(rand() % 5 + 1) + "\n";
 				}
-			}
-			else {
-				outFile << i << " " << j << " " << 0 << endl;
 			}
 		}
 	}
+
+	outFile << dim << " " << nnz << endl;
+	outFile << text;
 
 	outFile.close();
 }
+*/
 
 template <class T>
-void ReadMatrix(T* & mat, int dim, string filename) {
+void ReadMatrix(T* & mat, int &dim, int &nnz) {
 	ifstream inFile("matrix.txt");
-	mat = new T[dim * dim];
-	int* row_degs = new int[dim];
-	int* col_degs = new int[dim];
-	
+
 	int i, j, val;
 	string line;
-	int nonzeroNum = 0;
+
+	getline(inFile, line);
+	istringstream iss_first(line);
+	iss_first >> dim >> nnz;
+
+	mat = new T[dim * dim];
 	while (getline(inFile, line)) {
 		istringstream iss(line);
 		if (!(iss >> i >> j >> val)) { continue; } // erroneous line
-		if (val != 0) {
-			mat[i * dim + j] = val; row_degs[i]++; col_degs[j]++;
-			nonzeroNum++;
-		}	
+		mat[i * dim + j] = val;
 	}
-	
-	int zero_deg = 0;
-	int one_deg = 0;
-	int two_deg = 0;
-	for(int i = 0; i < dim; i++) {
-		if(row_degs[i] == 0) {
-			zero_deg++;
-			cout << "Row " << i << " has no nonzeros" << endl;
-		} else if(row_degs[i] == 1) {
-			one_deg++;
-		} else if(row_degs[i] == 2) {
-			two_deg++;
-		}
-
-		if(col_degs[i] == 0) {
-			zero_deg++;
-			cout << "Col " << i << " has no nonzeros" << endl;
-		} else if(col_degs[i] == 1) {
-			one_deg++;
-		} else if(col_degs[i] == 2) {
-			two_deg++;
-		}
-	}
-	delete [] row_degs;
-	delete [] col_degs;
-  
-	if(zero_deg > 0) {
-		cout << "Exiting due to non-empty rows/columns " << endl;
-		exit(1);
-	} else {
-		cout << "Number of rows/cols is " << dim << endl;
-		cout << "Number of nonzeros is " << nonzeroNum << endl;
-		cout << "#d1 vertices: " << one_deg << endl;
-		cout << "#d2 vertices: " << two_deg << endl;
-	}
-	cout << seperator << endl;
 }
 
 
@@ -441,42 +400,82 @@ void matrix2graph(T* mat, int nov, int*& xadj, int*& adj, T*& val) {
 
 
 template <class T>
-void matrix2CCS(T* mat, int nov, int*& cptrs, int*& rows, T*& cvals) {
-	int total = 0;
-	for (int i = 0; i < nov*nov; i++) {
-		if (mat[i] > 0) {
-			total++;
-		}
-	}
-
+void matrix2compressed(T* mat, int*& cptrs, int*& rows, T*& cvals, int*& rptrs, int*& cols, T*& rvals, int nov, int nnz) {
+	int curr_elt_r = 0;
+	int curr_elt_c = 0;
 	cptrs = new int[nov + 1];
-	rows = new int[total];
-	cvals = new T[total];
+	rows = new int[nnz];
+	cvals = new T[nnz];
+	rptrs = new int[nov + 1];
+	cols = new int[nnz];
+	rvals = new T[nnz];
 
-	int curr_elt = 0;
-	for (int j = 0; j < nov; j++) {
-		cptrs[j] = curr_elt;
-		for(int i = 0; i < nov; i++) {
+	for (int i = 0; i < nov; i++) {
+		rptrs[i] = curr_elt_r;
+		cptrs[i] = curr_elt_c;
+		for(int j = 0; j < nov; j++) {
 			if (mat[i*nov + j] > 0) {
-				rows[curr_elt] = i;
-				cvals[curr_elt] = mat[i*nov + j];
-				curr_elt++;
+				cols[curr_elt_r] = j;
+				rvals[curr_elt_r] = mat[i*nov + j];
+				curr_elt_r++;        
+			}
+			if (mat[j*nov + i] > 0) {
+				rows[curr_elt_c] = j;
+				cvals[curr_elt_c] = mat[j*nov + i];
+				curr_elt_c++;
 			}
 		}
 	}
-	cptrs[nov] = curr_elt;
+	rptrs[nov] = curr_elt_r;
+	cptrs[nov] = curr_elt_c;
 }
 
 
-template <class T>
-bool ScaleMatrix(T* M, int nov, int row, long col_extracted, double d_r[], double d_c[]) {
+bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int row, long col_extracted, double d_r[], double d_c[], int scale_times) {
+	
+	for (int k = 0; k < scale_times; k++) {
 
-	for (int i = 0; i < nov; i++) {
-		d_r[i] = 1;
-		d_c[i] = 1;
+		for (int j = 0; j < nov; j++) {
+			if (!((col_extracted >> j) & 1L)) {
+				double col_sum = 0;
+				int r;
+				for (int i = cptrs[j+1]-1; i >= cptrs[j]; i--) {
+					r = rows[i];
+					if (r >= row) {
+						col_sum += d_r[r];
+					} else {
+						break;
+					}
+				}
+				if (col_sum == 0) {
+					return false;
+				}
+				d_c[j] = 1 / col_sum;
+			}
+		}
+		for (int i = row; i < nov; i++) {
+			double row_sum = 0;
+			int c;
+			for (int j = rptrs[i]; j < rptrs[i+1]; j++) {
+				c = cols[j];
+				if (!((col_extracted >> c) & 1L)) {
+					row_sum += d_c[c];
+				}
+			}
+			if (row_sum == 0) {
+				return false;
+			}
+			d_r[i] = 1 / row_sum;
+		}
 	}
 
-	for (int k = 0; k < 5; k++) {
+	return true;
+}
+
+template <class T>
+bool ScaleMatrix(T* M, int nov, int row, long col_extracted, double d_r[], double d_c[], int scale_times) {
+	
+	for (int k = 0; k < scale_times; k++) {
 
 		for (int j = 0; j < nov; j++) {
 			if (!((col_extracted >> j) & 1L)) {
@@ -505,33 +504,6 @@ bool ScaleMatrix(T* M, int nov, int row, long col_extracted, double d_r[], doubl
 	}
 
 	return true;
-}
-
-template <class T>
-void ScaleMatrix_(T* M, int dim, double* d_r, double* d_c) {
-
-	for (int i = 0; i < dim; i++) {
-		d_r[i] = 1;
-		d_c[i] = 1;
-	}
-
-	for (int k = 0; k < 10; k++) {
-
-		for (int j = 0; j < dim; j++) {
-			double col_sum = 0;
-			for (int i = 0; i < dim; i++) {
-				col_sum += d_r[i] * M[i*dim + j];
-			}
-			d_c[j] = 1 / col_sum;
-		}
-		for (int i = 0; i < dim; i++) {
-			double row_sum = 0;
-			for (int j = 0; j < dim; j++) {
-				row_sum += M[i*dim + j] * d_c[j];
-			}
-			d_r[i] = 1 / row_sum;
-		}
-	}
 }
 
 

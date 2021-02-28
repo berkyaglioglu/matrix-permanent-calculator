@@ -7,7 +7,7 @@ using namespace std;
 
 
 template <class T>
-unsigned long long int greedy(T* mat, int nov, int number_of_times) {
+double greedy(T* mat, int nov, int number_of_times) {
   T* mat_t = new T[nov * nov];
   
   for (int i = 0; i < nov; i++) {
@@ -52,42 +52,65 @@ unsigned long long int greedy(T* mat, int nov, int number_of_times) {
       for (int i = 0; i < nov; i++) {
         // choose the row to be extracted
         deg = nov+1;
+        int n = 0;
         for (int l = 0; l < nov; l++) {
-          if (!row_extracted[l] && row_nnz[l] < deg) {
-            row = l;
-            deg = row_nnz[l];
+          if (!row_extracted[l]) {
+            if (row_nnz[l] < deg) {
+              n = 1;
+              row = l;
+              deg = row_nnz[l];
+            } else if (row_nnz[l] == deg) {
+              n++;
+            }
+          }
+        }
+        if (n > 1) {
+          random = rand() % n;
+          for (int l = 0; l < nov; l++) {
+            if (!row_extracted[l] && row_nnz[l] == deg) {
+              if (random == 0) {
+                row = l; break;
+              }
+              random--;
+            }
           }
         }
 
         // compute sum of probabilities, when finding deg = 1, set col
         sum_pk = 0;
-        col = -1;
+        int sum_ones = 0;
         for (int k = 0; k < nov; k++) {
           if (!col_extracted[k] && mat[row * nov + k] != 0) {
-            if (col_nnz[k] == 1) {
-              col = k;
-              break;
-            }
-            sum_pk += 1 / float(col_nnz[k] - 1);
+            sum_pk += 1 / float(col_nnz[k]);
           }
         }
 
         // choose the col to be extracted if not chosen already
-        if (col == -1) {
+        if (sum_ones == 0) {
           random = (float(rand()) / RAND_MAX) * sum_pk;
           sum_pk = 0;
           for (int k = 0; k < nov; k++) {
             if (!col_extracted[k] && mat[row * nov + k] != 0) {
-              sum_pk += 1 / float(col_nnz[k] - 1);
+              sum_pk += 1 / float(col_nnz[k]);
               if (random <= sum_pk) {
                 col = k;
-                pk = 1 / float(col_nnz[k] - 1);
+                pk = 1 / float(col_nnz[k]);
                 break;
               }
             }
           }
         } else {
-          pk = 1;
+          random = rand() % sum_ones;
+          for (int k = 0; k < nov; k++) {
+            if (!col_extracted[k] && mat[row * nov + k] != 0 && col_nnz[k] == 1) {
+              if (random == 0) {
+                col = k;
+                pk = 1;
+                break;
+              }
+              random--;
+            }
+          }
         }
         
         // multiply permanent with 1 / pk
@@ -142,38 +165,7 @@ unsigned long long int greedy(T* mat, int nov, int number_of_times) {
   return (sum_perm / number_of_times);
 }
 
-template <class T>
-unsigned long long int rasmussen_crs_ccs(T* mat, int nov, int number_of_times) {
-  int total = 0;
-  for (int i = 0; i < nov*nov; i++) {
-    if (mat[i] > 0) {
-      total++;
-    }
-  }
-
-  int curr_elt_r = 0;
-  int curr_elt_c = 0;
-  int cptrs[nov + 1];
-  int rows[total];
-  int rptrs[nov + 1];
-  int cols[total];
-  
-  for (int i = 0; i < nov; i++) {
-    rptrs[i] = curr_elt_r;
-    cptrs[i] = curr_elt_c;
-    for(int j = 0; j < nov; j++) {
-      if (mat[i*nov + j] > 0) {
-        cols[curr_elt_r] = j;
-        curr_elt_r++;        
-      }
-      if (mat[j*nov + i] > 0) {
-        rows[curr_elt_c] = j;
-        curr_elt_c++;
-      }
-    }
-  }
-  rptrs[nov] = curr_elt_r;
-  cptrs[nov] = curr_elt_c;
+double rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int number_of_times) {
 
   srand(time(0));
 
@@ -185,11 +177,10 @@ unsigned long long int rasmussen_crs_ccs(T* mat, int nov, int number_of_times) {
   #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       int row_nnz[nov];
-      bool col_extracted[nov];
+      long col_extracted = 0;
       
       for (int i = 0; i < nov; i++) {
         row_nnz[i] = rptrs[i+1] - rptrs[i];
-        col_extracted[i] = false;
       }
       
       double perm = 1;
@@ -203,7 +194,7 @@ unsigned long long int rasmussen_crs_ccs(T* mat, int nov, int number_of_times) {
         int col;
         for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
           int c = cols[i];
-          if (!col_extracted[c]) {
+          if (!((col_extracted >> c) & 1L)) {
             if (random == 0) {
               col = c;
               break;
@@ -214,7 +205,7 @@ unsigned long long int rasmussen_crs_ccs(T* mat, int nov, int number_of_times) {
         }
 
         // exract the column
-        col_extracted[col] = true;
+        col_extracted |= (1L << col);
 
         // update number of nonzeros of the rows after extracting the column
         bool zero_row = false;
@@ -247,7 +238,7 @@ unsigned long long int rasmussen_crs_ccs(T* mat, int nov, int number_of_times) {
 }
 
 template <class T>
-unsigned long long int rasmussen(T* mat, int nov, int number_of_times) {
+double rasmussen(T* mat, int nov, int number_of_times) {
   T* mat_t = new T[nov * nov];
   
   for (int i = 0; i < nov; i++) {
@@ -262,15 +253,14 @@ unsigned long long int rasmussen(T* mat, int nov, int number_of_times) {
 
   double sum_perm = 0;
   double sum_zeros = 0;
-    
+  
   #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       int row_nnz[nov];
-      bool col_extracted[nov];
+      long col_extracted = 0;
       
       for (int i = 0; i < nov; i++) {
         row_nnz[i] = 0;
-        col_extracted[i] = false;
         for (int j = 0; j < nov; j++) {
           if (mat[(i * nov) + j] != 0) {
             row_nnz[i] += 1;
@@ -288,7 +278,7 @@ unsigned long long int rasmussen(T* mat, int nov, int number_of_times) {
         int random = rand() % row_nnz[row];
         int col;
         for (int c = 0; c < nov; c++) {
-          if (!col_extracted[c] && mat[row * nov + c] != 0) {
+          if (!((col_extracted >> c) & 1L) && mat[row * nov + c] != 0) {
             if (random == 0) {
               col = c;
               break;
@@ -299,7 +289,7 @@ unsigned long long int rasmussen(T* mat, int nov, int number_of_times) {
         }
 
         // exract the column
-        col_extracted[col] = true;
+        col_extracted |= (1L << col);
 
         // update number of nonzeros of the rows after extracting the column
         bool zero_row = false;
@@ -330,8 +320,7 @@ unsigned long long int rasmussen(T* mat, int nov, int number_of_times) {
   return (sum_perm / number_of_times);
 }
 
-template <class T>
-unsigned long long int approximation_perman64(T* mat, int nov, int number_of_times) {
+double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int number_of_times, int scale_intervals, int scale_times) {
 
   srand(time(0));
 
@@ -345,17 +334,102 @@ unsigned long long int approximation_perman64(T* mat, int nov, int number_of_tim
       long col_extracted = 0;
 
       double Xa = 1;
-      bool is_break = false;
       double d_r[nov];
       double d_c[nov];
+      for (int i = 0; i < nov; i++) {
+        d_r[i] = 1;
+        d_c[i] = 1;
+      }
 
       for (int row = 0; row < nov; row++) {
         // Scale part
-        bool success = ScaleMatrix(mat, nov, row, col_extracted, d_r, d_c);
-        if (!success) {
+        if (row % scale_intervals == 0) {
+          bool success = ScaleMatrix_sparse(cptrs, rows, rptrs, cols, nov, row, col_extracted, d_r, d_c, scale_times);
+          if (!success) {
+            Xa = 0;
+            sum_zeros++;
+            break;
+          }
+        }
+
+        // use scaled matrix for pj
+        double sum_row_of_S = 0;
+        for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
+          int c = cols[i];
+          if (!((col_extracted >> c) & 1L)) {
+            sum_row_of_S += d_r[row] * d_c[c];
+          }
+        }
+        if (sum_row_of_S == 0) {
           Xa = 0;
           sum_zeros++;
           break;
+        }
+
+        double random = (double(rand()) / RAND_MAX) * sum_row_of_S;
+        double temp = 0;
+        double s, pj;
+        int col;
+        for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
+          int c = cols[i];
+          if (!((col_extracted >> c) & 1L)) {
+            s = d_r[row] * d_c[c];
+            temp += s;
+            if (random <= temp) {
+              col = c;
+              pj = s / sum_row_of_S;
+              break;
+            }
+          }
+        }
+
+        // update Xa
+        Xa /= pj;
+        
+        // exract the column
+        col_extracted |= (1L << col);
+
+      }
+
+      sum_perm += Xa;
+    }
+  
+  cout << "number of zeros: " << sum_zeros << endl;
+  
+  return (sum_perm / number_of_times);
+}
+
+template <class T>
+double approximation_perman64(T* mat, int nov, int number_of_times, int scale_intervals, int scale_times) {
+
+  srand(time(0));
+
+  int nt = omp_get_max_threads();
+
+  double sum_perm = 0;
+  double sum_zeros = 0;
+    
+  #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
+    for (int time = 0; time < number_of_times; time++) {
+      long col_extracted = 0;
+
+      double Xa = 1;
+      double d_r[nov];
+      double d_c[nov];
+      for (int i = 0; i < nov; i++) {
+        d_r[i] = 1;
+        d_c[i] = 1;
+      }
+
+      for (int row = 0; row < nov; row++) {
+        // Scale part
+        if (row % scale_intervals == 0) {
+          bool success = ScaleMatrix(mat, nov, row, col_extracted, d_r, d_c, scale_times);
+          if (!success) {
+            Xa = 0;
+            sum_zeros++;
+            break;
+          }
         }
         
         // use scaled matrix for pj
@@ -364,6 +438,11 @@ unsigned long long int approximation_perman64(T* mat, int nov, int number_of_tim
           if (!((col_extracted >> j) & 1L) && mat[(row * nov) + j] != 0) {
             sum_row_of_S += d_r[row] * mat[(row * nov) + j] * d_c[j];
           }
+        }
+        if (sum_row_of_S == 0) {
+          Xa = 0;
+          sum_zeros++;
+          break;
         }
 
         double random = (double(rand()) / RAND_MAX) * sum_row_of_S;
@@ -399,7 +478,7 @@ unsigned long long int approximation_perman64(T* mat, int nov, int number_of_tim
 }
 
 template <class T>
-unsigned long long int parallel_perman64_with_ccs(T* mat, int nov, int* cptrs, int* rows, T* cvals) {
+double parallel_perman64_sparse(T* mat, int* cptrs, int* rows, T* cvals, int nov) {
   const int a = omp_get_max_threads();
   double x[64];   
   double rs; //row sum
@@ -490,7 +569,7 @@ unsigned long long int parallel_perman64_with_ccs(T* mat, int nov, int* cptrs, i
 }
 
 template <class T>
-unsigned long long int parallel_perman64(T* mat, int nov) {
+double parallel_perman64(T* mat, int nov) {
   const int a = omp_get_max_threads();
   double x[64];   
   double rs; //row sum
