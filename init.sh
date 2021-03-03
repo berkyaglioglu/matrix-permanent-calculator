@@ -22,16 +22,17 @@ function help() {
     log_green "$(log_blue_text "set_matrix"): PARAMETERS ~ {PATH_TO_MATRIX}"
 
     log_red "Commands to run exact algorithms:"
-    log_green "$(log_blue_text "gpu_perman64_xlocal"): "
-    log_green "$(log_blue_text "gpu_perman64_xlocal_sparse"): "
-    log_green "$(log_blue_text "gpu_perman64_xshared"): "
-    log_green "$(log_blue_text "gpu_perman64_xshared_sparse"): "
-    log_green "$(log_blue_text "gpu_perman64_xshared_coalescing"): "
-    log_green "$(log_blue_text "gpu_perman64_xshared_coalescing_sparse"): "
-    log_green "$(log_blue_text "gpu_perman64_xshared_coalescing_mshared"): "
-    log_green "$(log_blue_text "gpu_perman64_xshared_coalescing_mshared_sparse"): "
+    log_green "$(log_blue_text "gpu_perman64_xlocal"): PARAMETERS ~ {GRID_DIM}, {BLOCK_DIM}"
+    log_green "$(log_blue_text "gpu_perman64_xlocal_sparse"): PARAMETERS ~ {GRID_DIM}, {BLOCK_DIM}"
+    log_green "$(log_blue_text "gpu_perman64_xshared"): PARAMETERS ~ {GRID_DIM}, {BLOCK_DIM}"
+    log_green "$(log_blue_text "gpu_perman64_xshared_sparse"): PARAMETERS ~ {GRID_DIM}, {BLOCK_DIM}"
+    log_green "$(log_blue_text "gpu_perman64_xshared_coalescing"): PARAMETERS ~ {GRID_DIM}, {BLOCK_DIM}"
+    log_green "$(log_blue_text "gpu_perman64_xshared_coalescing_sparse"): PARAMETERS ~ {GRID_DIM}, {BLOCK_DIM}"
+    log_green "$(log_blue_text "gpu_perman64_xshared_coalescing_mshared"): PARAMETERS ~ {GRID_DIM}, {BLOCK_DIM}"
+    log_green "$(log_blue_text "gpu_perman64_xshared_coalescing_mshared_sparse"): PARAMETERS ~ {GRID_DIM}, {BLOCK_DIM}"
     log_green "$(log_blue_text "parallel_perman64"): "
     log_green "$(log_blue_text "parallel_perman64_sparse"): "
+    log_green "$(log_blue_text "gpu_perman64_xglobal"): PARAMETERS ~ {GRID_DIM}, {BLOCK_DIM}"
 
     log_red "Commands to run approximation algorithms:"
     log_green "$(log_blue_text "gpu_perman64_rasmussen"): PARAMETERS ~ {NUMBER_OF_TIMES}"
@@ -70,35 +71,51 @@ function set_matrix() {
 
 
 function gpu_perman64_xlocal() {
-    ./a.out 1
+    GRID_DIM=$1
+    BLOCK_DIM=$2
+    ./a.out 1 ${GRID_DIM} ${BLOCK_DIM}
 }
 
 function gpu_perman64_xlocal_sparse() {
-    ./a.out 2
+    GRID_DIM=$1
+    BLOCK_DIM=$2
+    ./a.out 2 ${GRID_DIM} ${BLOCK_DIM}
 }
 
 function gpu_perman64_xshared() {
-    ./a.out 3
+    GRID_DIM=$1
+    BLOCK_DIM=$2
+    ./a.out 3 ${GRID_DIM} ${BLOCK_DIM}
 }
 
 function gpu_perman64_xshared_sparse() {
-    ./a.out 4
+    GRID_DIM=$1
+    BLOCK_DIM=$2
+    ./a.out 4 ${GRID_DIM} ${BLOCK_DIM}
 }
 
 function gpu_perman64_xshared_coalescing() {
-    ./a.out 5
+    GRID_DIM=$1
+    BLOCK_DIM=$2
+    ./a.out 5 ${GRID_DIM} ${BLOCK_DIM}
 }
 
 function gpu_perman64_xshared_coalescing_sparse() {
-    ./a.out 6
+    GRID_DIM=$1
+    BLOCK_DIM=$2
+    ./a.out 6 ${GRID_DIM} ${BLOCK_DIM}
 }
 
 function gpu_perman64_xshared_coalescing_mshared() {
-    ./a.out 7
+    GRID_DIM=$1
+    BLOCK_DIM=$2
+    ./a.out 7 ${GRID_DIM} ${BLOCK_DIM}
 }
 
 function gpu_perman64_xshared_coalescing_mshared_sparse() {
-    ./a.out 8
+    GRID_DIM=$1
+    BLOCK_DIM=$2
+    ./a.out 8 ${GRID_DIM} ${BLOCK_DIM}
 }
 
 function parallel_perman64() {
@@ -161,3 +178,8 @@ function approximation_perman64_sparse() {
 }
 
 
+function gpu_perman64_xglobal() {
+    GRID_DIM=$1
+    BLOCK_DIM=$2
+    ./a.out 19 ${GRID_DIM} ${BLOCK_DIM}
+}

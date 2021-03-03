@@ -27,7 +27,8 @@ enum algo {
   rasmussen_algo = 15,
   rasmussen_sparse_algo = 16,
   approximation_perman64_algo = 17,
-  approximation_perman64_sparse_algo = 18
+  approximation_perman64_sparse_algo = 18,
+  gpu_perman64_xglobal_algo = 19
 };
 
 
@@ -35,61 +36,109 @@ template <class T>
 void CallFunctions(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *rvals, int dim, int nnz, int argc, char** argv) {
   int algo_id = atoi(argv[1]);
   double perman, start, end;
-  int number_of_times, scale_intervals, scale_times;
+  int number_of_times, scale_intervals, scale_times, grid_dim, block_dim;
 
   switch(algo_id) {
     case gpu_perman64_xlocal_algo :
+      if (argc != 4) {
+        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
+        break;
+      }
+      grid_dim = atoi(argv[2]);
+      block_dim = atoi(argv[3]);
       start = omp_get_wtime();
-      perman = gpu_perman64_xlocal(mat, dim);
+      perman = gpu_perman64_xlocal(mat, dim, grid_dim, block_dim);
       end = omp_get_wtime();
       cout << "gpu_perman64_xlocal: " << perman << " in " << (end - start) << endl;
       break;
 
     case gpu_perman64_xlocal_sparse_algo :
+      if (argc != 4) {
+        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
+        break;
+      }
+      grid_dim = atoi(argv[2]);
+      block_dim = atoi(argv[3]);
       start = omp_get_wtime();
-      perman = gpu_perman64_xlocal_sparse(mat, cptrs, rows, cvals, dim);
+      perman = gpu_perman64_xlocal_sparse(mat, cptrs, rows, cvals, dim, grid_dim, block_dim);
       end = omp_get_wtime();
       cout << "gpu_perman64_xlocal_sparse: " << perman << " in " << (end - start) << endl;
       break;
 
     case gpu_perman64_xshared_algo :
+      if (argc != 4) {
+        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
+        break;
+      }
+      grid_dim = atoi(argv[2]);
+      block_dim = atoi(argv[3]);
       start = omp_get_wtime();
-      perman = gpu_perman64_xshared(mat, dim);
+      perman = gpu_perman64_xshared(mat, dim, grid_dim, block_dim);
       end = omp_get_wtime();
       cout << "gpu_perman64_xshared: " << perman << " in " << (end - start) << endl;
       break;
 
     case gpu_perman64_xshared_sparse_algo :
+      if (argc != 4) {
+        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
+        break;
+      }
+      grid_dim = atoi(argv[2]);
+      block_dim = atoi(argv[3]);
       start = omp_get_wtime();
-      perman = gpu_perman64_xshared_sparse(mat, cptrs, rows, cvals, dim);
+      perman = gpu_perman64_xshared_sparse(mat, cptrs, rows, cvals, dim, grid_dim, block_dim);
       end = omp_get_wtime();
       cout << "gpu_perman64_xshared_sparse: " << perman << " in " << (end - start) << endl;
       break;
 
     case gpu_perman64_xshared_coalescing_algo :
+      if (argc != 4) {
+        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
+        break;
+      }
+      grid_dim = atoi(argv[2]);
+      block_dim = atoi(argv[3]);
       start = omp_get_wtime();
-      perman = gpu_perman64_xshared_coalescing(mat, dim);
+      perman = gpu_perman64_xshared_coalescing(mat, dim, grid_dim, block_dim);
       end = omp_get_wtime();
       cout << "gpu_perman64_xshared_coalescing: " << perman << " in " << (end - start) << endl;
       break;
 
     case gpu_perman64_xshared_coalescing_sparse_algo :
+      if (argc != 4) {
+        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
+        break;
+      }
+      grid_dim = atoi(argv[2]);
+      block_dim = atoi(argv[3]);
       start = omp_get_wtime();
-      perman = gpu_perman64_xshared_coalescing_sparse(mat, cptrs, rows, cvals, dim);
+      perman = gpu_perman64_xshared_coalescing_sparse(mat, cptrs, rows, cvals, dim, grid_dim, block_dim);
       end = omp_get_wtime();
       cout << "gpu_perman64_xshared_coalescing_sparse: " << perman << " in " << (end - start) << endl;
       break;
 
     case gpu_perman64_xshared_coalescing_mshared_algo :
+      if (argc != 4) {
+        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
+        break;
+      }
+      grid_dim = atoi(argv[2]);
+      block_dim = atoi(argv[3]);
       start = omp_get_wtime();
-      perman = gpu_perman64_xshared_coalescing_mshared(mat, dim);
+      perman = gpu_perman64_xshared_coalescing_mshared(mat, dim, grid_dim, block_dim);
       end = omp_get_wtime();
       cout << "gpu_perman64_xshared_coalescing_mshared: " << perman << " in " << (end - start) << endl;
       break;
 
     case gpu_perman64_xshared_coalescing_mshared_sparse_algo :
+      if (argc != 4) {
+        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
+        break;
+      }
+      grid_dim = atoi(argv[2]);
+      block_dim = atoi(argv[3]);
       start = omp_get_wtime();
-      perman = gpu_perman64_xshared_coalescing_mshared_sparse(mat, cptrs, rows, cvals, dim);
+      perman = gpu_perman64_xshared_coalescing_mshared_sparse(mat, cptrs, rows, cvals, dim, grid_dim, block_dim);
       end = omp_get_wtime();
       cout << "gpu_perman64_xshared_coalescing_mshared_sparse: " << perman << " in " << (end - start) << endl;
       break;
@@ -210,6 +259,19 @@ void CallFunctions(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *col
       perman = approximation_perman64_sparse(cptrs, rows, rptrs, cols, dim, number_of_times, scale_intervals, scale_times);
       end = omp_get_wtime();
       cout << "approximation_perman64_sparse: " << perman << " in " << (end - start) << endl;
+      break;
+
+    case gpu_perman64_xglobal_algo :
+      if (argc != 4) {
+        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
+        break;
+      }
+      grid_dim = atoi(argv[2]);
+      block_dim = atoi(argv[3]);
+      start = omp_get_wtime();
+      perman = gpu_perman64_xglobal(mat, dim, grid_dim, block_dim);
+      end = omp_get_wtime();
+      cout << "gpu_perman64_xglobal: " << perman << " in " << (end - start) << endl;
       break;
 
   }
