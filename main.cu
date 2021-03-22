@@ -2,6 +2,8 @@
 #include <iostream>
 #include <string>
 #include <stdlib.h>
+#include <ctype.h>
+#include <unistd.h>
 #include <omp.h>
 #include <stdio.h>
 #include "util.h"
@@ -9,349 +11,279 @@
 #include "algo.cu"
 using namespace std;
 
-enum algo {
-  gpu_perman64_xlocal_algo = 1,
-  gpu_perman64_xlocal_sparse_algo = 2,
-  gpu_perman64_xshared_algo = 3,
-  gpu_perman64_xshared_sparse_algo = 4,
-  gpu_perman64_xshared_coalescing_algo =  5,
-  gpu_perman64_xshared_coalescing_sparse_algo = 6,
-  gpu_perman64_xshared_coalescing_mshared_algo = 7,
-  gpu_perman64_xshared_coalescing_mshared_sparse_algo = 8,
-  parallel_perman64_algo = 9,
-  parallel_perman64_sparse_algo = 10,
-  gpu_perman64_rasmussen_algo = 11,
-  gpu_perman64_rasmussen_sparse_algo = 12,
-  gpu_perman64_approximation_algo = 13,
-  gpu_perman64_approximation_sparse_algo = 14,
-  rasmussen_algo = 15,
-  rasmussen_sparse_algo = 16,
-  approximation_perman64_algo = 17,
-  approximation_perman64_sparse_algo = 18,
-  gpu_perman64_xglobal_algo = 19
-};
-
 
 template <class T>
-void CallFunctions(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *rvals, int dim, int nnz, int argc, char** argv) {
-  int algo_id = atoi(argv[1]);
-  double perman, start, end;
-  int number_of_times, scale_intervals, scale_times, grid_dim, block_dim;
-
-  switch(algo_id) {
-    case gpu_perman64_xlocal_algo :
-      if (argc != 4) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
+void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *rvals, int perman_algo, int nov, int nnz, int threads,
+            bool gpu, bool cpu, bool dense, bool approximation, int number_of_times, int scale_intervals, int scale_times) 
+{
+  int grid_dim = 2048;
+  int block_dim = 256;
+  double start, end, perman;
+  if (gpu) {
+    if (dense) { // dense
+      if (!approximation) { // exact
+        if (perman_algo == 1) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xlocal(mat, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xlocal " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 2) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xshared(mat, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xshared " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 3) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xshared_coalescing(mat, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xshared_coalescing " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 4) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xshared_coalescing_mshared(mat, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xshared_coalescing_mshared " << perman << " in " << (end - start) << endl;
+        } else {
+          cout << "Unknown Algorithm ID" << endl;
+        } 
+      } else { // approximation
+        if (perman_algo == 1) { // rasmussen
+          start = omp_get_wtime();
+          perman = gpu_perman64_rasmussen(mat, nov, number_of_times);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_rasmussen " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 2) { // approximation_with_scaling
+          start = omp_get_wtime();
+          perman = gpu_perman64_approximation(mat, nov, number_of_times, scale_intervals, scale_times);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_approximation " << perman << " in " << (end - start) << endl;
+        } else {
+          cout << "Unknown Algorithm ID" << endl;
+        } 
       }
-      grid_dim = atoi(argv[2]);
-      block_dim = atoi(argv[3]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_xlocal(mat, dim, grid_dim, block_dim);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_xlocal: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_xlocal_sparse_algo :
-      if (argc != 4) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
+    } else { // sparse
+      if (!approximation) { // exact
+        if (perman_algo == 1) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xlocal_sparse(mat, cptrs, rows, cvals, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xlocal_sparse " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 2) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xshared_sparse(mat, cptrs, rows, cvals, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xshared_sparse " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 3) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xshared_coalescing_sparse(mat, cptrs, rows, cvals, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xshared_coalescing_sparse " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 4) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xshared_coalescing_mshared_sparse(mat, cptrs, rows, cvals, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xshared_coalescing_mshared_sparse " << perman << " in " << (end - start) << endl;
+        } else {
+          cout << "Unknown Algorithm ID" << endl;
+        } 
+      } else { // approximation
+        if (perman_algo == 1) { // rasmussen
+          start = omp_get_wtime();
+          perman = gpu_perman64_rasmussen_sparse(rptrs, cols, nov, nnz, number_of_times);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_rasmussen_sparse " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 2) { // approximation_with_scaling
+          start = omp_get_wtime();
+          perman = gpu_perman64_approximation_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, scale_intervals, scale_times);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_approximation_sparse " << perman << " in " << (end - start) << endl;
+        } else {
+          cout << "Unknown Algorithm ID" << endl;
+        } 
       }
-      grid_dim = atoi(argv[2]);
-      block_dim = atoi(argv[3]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_xlocal_sparse(mat, cptrs, rows, cvals, dim, grid_dim, block_dim);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_xlocal_sparse: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_xshared_algo :
-      if (argc != 4) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
+    }
+  } else if (cpu) {
+    if (dense) { // dense
+      if (!approximation) { // exact
+        start = omp_get_wtime();
+        perman = parallel_perman64(mat, nov, threads);
+        end = omp_get_wtime();
+        cout << "Result: parallel_perman64 " << perman << " in " << (end - start) << endl;
+      } else { // approximation
+        if (perman_algo == 1) { // rasmussen
+          start = omp_get_wtime();
+          perman = rasmussen(mat, nov, number_of_times, threads);
+          end = omp_get_wtime();
+          cout << "Result: rasmussen " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 2) { // approximation_with_scaling
+          start = omp_get_wtime();
+          perman = approximation_perman64(mat, nov, number_of_times, scale_intervals, scale_times, threads);
+          end = omp_get_wtime();
+          cout << "Result: approximation_perman64 " << perman << " in " << (end - start) << endl;
+        } else {
+          cout << "Unknown Algorithm ID" << endl;
+        } 
       }
-      grid_dim = atoi(argv[2]);
-      block_dim = atoi(argv[3]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_xshared(mat, dim, grid_dim, block_dim);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_xshared: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_xshared_sparse_algo :
-      if (argc != 4) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
+    } else { // sparse
+      if (!approximation) { // exact
+        start = omp_get_wtime();
+        perman = parallel_perman64_sparse(mat, cptrs, rows, cvals, nov, threads);
+        end = omp_get_wtime();
+        cout << "Result: parallel_perman64_sparse " << perman << " in " << (end - start) << endl;
+      } else { // approximation
+        if (perman_algo == 1) { // rasmussen
+          start = omp_get_wtime();
+          perman = rasmussen_sparse(cptrs, rows, rptrs, cols, nov, number_of_times, threads);
+          end = omp_get_wtime();
+          cout << "Result: rasmussen_sparse " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 2) { // approximation_with_scaling
+          start = omp_get_wtime();
+          perman = approximation_perman64_sparse(cptrs, rows, rptrs, cols, nov, number_of_times, scale_intervals, scale_times, threads);
+          end = omp_get_wtime();
+          cout << "Result: approximation_perman64_sparse " << perman << " in " << (end - start) << endl;
+        } else {
+          cout << "Unknown Algorithm ID" << endl;
+        } 
       }
-      grid_dim = atoi(argv[2]);
-      block_dim = atoi(argv[3]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_xshared_sparse(mat, cptrs, rows, cvals, dim, grid_dim, block_dim);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_xshared_sparse: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_xshared_coalescing_algo :
-      if (argc != 4) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      grid_dim = atoi(argv[2]);
-      block_dim = atoi(argv[3]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_xshared_coalescing(mat, dim, grid_dim, block_dim);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_xshared_coalescing: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_xshared_coalescing_sparse_algo :
-      if (argc != 4) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      grid_dim = atoi(argv[2]);
-      block_dim = atoi(argv[3]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_xshared_coalescing_sparse(mat, cptrs, rows, cvals, dim, grid_dim, block_dim);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_xshared_coalescing_sparse: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_xshared_coalescing_mshared_algo :
-      if (argc != 4) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      grid_dim = atoi(argv[2]);
-      block_dim = atoi(argv[3]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_xshared_coalescing_mshared(mat, dim, grid_dim, block_dim);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_xshared_coalescing_mshared: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_xshared_coalescing_mshared_sparse_algo :
-      if (argc != 4) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      grid_dim = atoi(argv[2]);
-      block_dim = atoi(argv[3]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_xshared_coalescing_mshared_sparse(mat, cptrs, rows, cvals, dim, grid_dim, block_dim);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_xshared_coalescing_mshared_sparse: " << perman << " in " << (end - start) << endl;
-      break;
-    
-    case parallel_perman64_algo :
-      start = omp_get_wtime();
-      perman = parallel_perman64(mat, dim);
-      end = omp_get_wtime();
-      cout << "parallel_perman64: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case parallel_perman64_sparse_algo :
-      start = omp_get_wtime();
-      perman = parallel_perman64_sparse(mat, cptrs, rows, cvals, dim);
-      end = omp_get_wtime();
-      cout << "parallel_perman64_sparse: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_rasmussen_algo :
-      if (argc != 3) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      number_of_times = atoi(argv[2]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_rasmussen(mat, dim, number_of_times);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_rasmussen: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_rasmussen_sparse_algo :
-      if (argc != 3) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      number_of_times = atoi(argv[2]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_rasmussen_sparse(rptrs, cols, dim, nnz, number_of_times);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_rasmussen_sparse: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_approximation_algo :
-      if (argc != 5) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      number_of_times = atoi(argv[2]);
-      scale_intervals = atoi(argv[3]);
-      scale_times = atoi(argv[4]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_approximation(mat, dim, number_of_times, scale_intervals, scale_times);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_approximation: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_approximation_sparse_algo :
-      if (argc != 5) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      number_of_times = atoi(argv[2]);
-      scale_intervals = atoi(argv[3]);
-      scale_times = atoi(argv[4]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_approximation_sparse(cptrs, rows, rptrs, cols, dim, nnz, number_of_times, scale_intervals, scale_times);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_approximation_sparse: " << perman << " in " << (end - start) << endl;
-      break;
-    
-    case rasmussen_algo :
-      if (argc != 3) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      number_of_times = atoi(argv[2]);
-      start = omp_get_wtime();
-      perman = rasmussen(mat, dim, number_of_times);
-      end = omp_get_wtime();
-      cout << "rasmussen: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case rasmussen_sparse_algo :
-      if (argc != 3) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      number_of_times = atoi(argv[2]);
-      start = omp_get_wtime();
-      perman = rasmussen_sparse(cptrs, rows, rptrs, cols, dim, number_of_times);
-      end = omp_get_wtime();
-      cout << "rasmussen_sparse: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case approximation_perman64_algo :
-      if (argc != 5) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      number_of_times = atoi(argv[2]);
-      scale_intervals = atoi(argv[3]);
-      scale_times = atoi(argv[4]);
-      start = omp_get_wtime();
-      perman = approximation_perman64(mat, dim, number_of_times, scale_intervals, scale_times);
-      end = omp_get_wtime();
-      cout << "approximation_perman64: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case approximation_perman64_sparse_algo :
-      if (argc != 5) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      number_of_times = atoi(argv[2]);
-      scale_intervals = atoi(argv[3]);
-      scale_times = atoi(argv[4]);
-      start = omp_get_wtime();
-      perman = approximation_perman64_sparse(cptrs, rows, rptrs, cols, dim, number_of_times, scale_intervals, scale_times);
-      end = omp_get_wtime();
-      cout << "approximation_perman64_sparse: " << perman << " in " << (end - start) << endl;
-      break;
-
-    case gpu_perman64_xglobal_algo :
-      if (argc != 4) {
-        cout << "Number of parameters is wrong. Please check parameters by typing 'help'" << endl;
-        break;
-      }
-      grid_dim = atoi(argv[2]);
-      block_dim = atoi(argv[3]);
-      start = omp_get_wtime();
-      perman = gpu_perman64_xglobal(mat, dim, grid_dim, block_dim);
-      end = omp_get_wtime();
-      cout << "gpu_perman64_xglobal: " << perman << " in " << (end - start) << endl;
-      break;
-
+    }
   }
-
 }
 
 
+int main (int argc, char **argv)
+{ 
+  bool generic = true;
+  bool dense = true;
+  bool approximation = false;
+  bool gpu = false;
+  bool cpu = false;
+  int threads = 16;
+  string filename = "";
+  int perman_algo = 1;
+
+  int number_of_times = 100000;
+  int scale_intervals = 4;
+  int scale_times = 5;
+
+  int c;
+
+  while ((c = getopt (argc, argv, "bst:m:gcap:x:y:z:")) != -1)
+    switch (c)
+    {
+      case 'b':
+        generic = false;
+        break;
+      case 's':
+        dense = false;
+        break;
+      case 't':
+        if (optarg[0] == '-'){
+          fprintf (stderr, "Option -t requires an argument.\n");
+          return 1;
+        }
+        threads = atoi(optarg);
+        break;
+      case 'm':
+        if (optarg[0] == '-'){
+          fprintf (stderr, "Option -m requires an argument.\n");
+          return 1;
+        }
+        filename = optarg;
+        break;
+      case 'a':
+        approximation = true;
+        break;
+      case 'g':
+        gpu = true;
+        break;
+      case 'c':
+        cpu = true;
+        break;
+      case 'p':
+        if (optarg[0] == '-'){
+          fprintf (stderr, "Option -p requires an argument.\n");
+          return 1;
+        }
+        perman_algo = atoi(optarg);
+        break;
+      case 'x':
+        if (optarg[0] == '-'){
+          fprintf (stderr, "Option -x requires an argument.\n");
+          return 1;
+        }
+        number_of_times = atoi(optarg);
+        break;
+      case 'y':
+        if (optarg[0] == '-'){
+          fprintf (stderr, "Option -y requires an argument.\n");
+          return 1;
+        }
+        scale_intervals = atoi(optarg);
+        break;
+      case 'z':
+        if (optarg[0] == '-'){
+          fprintf (stderr, "Option -z requires an argument.\n");
+          return 1;
+        }
+        scale_times = atoi(optarg);
+        break;
+      case '?':
+        if (optopt == 't')
+          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
+        else if (optopt == 'm')
+          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
+        else if (optopt == 'p')
+          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
+        else if (isprint (optopt))
+          fprintf (stderr, "Unknown option `-%c'.\n", optopt);
+        else
+          fprintf (stderr,
+                   "Unknown option character `\\x%x'.\n",
+                   optopt);
+        return 1;
+      default:
+        abort ();
+    }
+
+  if (filename == "") {
+    fprintf (stderr, "Option -m is a required argument.\n");
+  }
+
+  for (int index = optind; index < argc; index++)
+  {
+    printf ("Non-option argument %s\n", argv[index]);
+  }
+
+  if (!cpu && !gpu) {
+    gpu = true;
+  }
 
 
-int main(int argc, char** argv) {
-  int algo_id = atoi(argv[1]);
-
+  int nov, nnz;
   string type;
-  cout << "Enter the type of the matrix(\"int\", \"float\", or \"double\"): " << endl;
-  cin >> type;
+
+  ifstream inFile(filename);
+  string line;
+  getline(inFile, line);
+  istringstream iss(line);
+  iss >> nov >> nnz >> type;
 
   if (type == "int") {
-    int *mat, *cvals, *rvals;
-    int *cptrs, *rows, *rptrs, *cols;
-    int dim, nnz;
-    ReadMatrix(mat, dim, nnz);
-    for (int i = 0; i < dim; i++) {
-      for(int j = 0; j < dim; j++) {
-        cout << mat[i*dim+j] << " ";
-      }
-      cout << endl;
-    }
-    
-    matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, dim, nnz);
-    
-    CallFunctions(mat, cptrs, rows, cvals, rptrs, cols, rvals, dim, nnz, argc, argv);
-    
-    delete[] mat;
-    delete[] cptrs;
-    delete[] rows;
-    delete[] cvals;
-    delete[] rptrs;
-    delete[] cols;
-    delete[] rvals;
-  }
-  else if (type == "float") {
-    float *mat, *cvals, *rvals;
-    int *cptrs, *rows, *rptrs, *cols;
-    int dim, nnz;
-    ReadMatrix(mat, dim, nnz);
-    for (int i = 0; i < dim; i++) {
-      for(int j = 0; j < dim; j++) {
-        cout << mat[i*dim+j] << " ";
-      }
-      cout << endl;
-    }
-    
-    matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, dim, nnz);
+    int* mat = new int[nov*nov];
+    ReadMatrix(mat, inFile, nov, generic);
 
-    CallFunctions(mat, cptrs, rows, cvals, rptrs, cols, rvals, dim, nnz, argc, argv);
-    
-    delete[] mat;
-    delete[] cptrs;
-    delete[] rows;
-    delete[] cvals;
-    delete[] rptrs;
-    delete[] cols;
-    delete[] rvals;
-  }
-  else if (type == "double") {
-    double *mat, *cvals, *rvals;
+    int *cvals, *rvals;
     int *cptrs, *rows, *rptrs, *cols;
-    int dim, nnz;
-    ReadMatrix(mat, dim, nnz);
-    for (int i = 0; i < dim; i++) {
-      for(int j = 0; j < dim; j++) {
-        cout << mat[i*dim+j] << " ";
+    matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    
+    for (int i = 0; i < nov; i++) {
+      for(int j = 0; j < nov; j++) {
+        cout << mat[i*nov+j] << " ";
       }
       cout << endl;
     }
-    
-    matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, dim, nnz);
 
-    CallFunctions(mat, cptrs, rows, cvals, rptrs, cols, rvals, dim, nnz, argc, argv);
-    
+    RunAlgo(mat, cptrs, rows, cvals, rptrs, cols, rvals, perman_algo, nov, nnz, threads, gpu, cpu, dense, approximation, number_of_times, scale_intervals, scale_times);
+
     delete[] mat;
     delete[] cptrs;
     delete[] rows;
@@ -359,10 +291,65 @@ int main(int argc, char** argv) {
     delete[] rptrs;
     delete[] cols;
     delete[] rvals;
-  }
-  else {
-    cout << "Value for \"type\" is nonexist" << endl;
-    exit(1);
+    
+  } else if (type == "float") {
+    float* mat = new float[nov*nov];
+    ReadMatrix(mat, inFile, nov, generic);
+
+    float *cvals, *rvals;
+    int *cptrs, *rows, *rptrs, *cols;
+    matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    
+    for (int i = 0; i < nov; i++) {
+      for(int j = 0; j < nov; j++) {
+        if (mat[i*nov+j] == 0) {
+          cout << "0.0 ";
+        } else {
+          cout << to_string(mat[i*nov+j]).substr(0,3) << " ";
+        }
+      }
+      cout << endl;
+    }
+
+    RunAlgo(mat, cptrs, rows, cvals, rptrs, cols, rvals, perman_algo, nov, nnz, threads, gpu, cpu, dense, approximation, number_of_times, scale_intervals, scale_times);
+
+    delete[] mat;
+    delete[] cptrs;
+    delete[] rows;
+    delete[] cvals;
+    delete[] rptrs;
+    delete[] cols;
+    delete[] rvals;
+
+  } else if (type == "double") {
+    double* mat = new double[nov*nov];
+    ReadMatrix(mat, inFile, nov, generic);
+
+    double *cvals, *rvals;
+    int *cptrs, *rows, *rptrs, *cols;
+    matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    
+    for (int i = 0; i < nov; i++) {
+      for(int j = 0; j < nov; j++) {
+        if (mat[i*nov+j] == 0) {
+          cout << "0.0 ";
+        } else {
+          cout << to_string(mat[i*nov+j]).substr(0,3) << " ";
+        }
+      }
+      cout << endl;
+    }
+
+    RunAlgo(mat, cptrs, rows, cvals, rptrs, cols, rvals, perman_algo, nov, nnz, threads, gpu, cpu, dense, approximation, number_of_times, scale_intervals, scale_times);
+
+    delete[] mat;
+    delete[] cptrs;
+    delete[] rows;
+    delete[] cvals;
+    delete[] rptrs;
+    delete[] cols;
+    delete[] rvals;
+
   }
 
   return 0;

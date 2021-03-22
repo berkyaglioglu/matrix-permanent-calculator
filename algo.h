@@ -165,16 +165,14 @@ double greedy(T* mat, int nov, int number_of_times) {
   return (sum_perm / number_of_times);
 }
 
-double rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int number_of_times) {
+double rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int number_of_times, int threads) {
 
   srand(time(0));
-
-  int nt = omp_get_max_threads();
 
   double sum_perm = 0;
   double sum_zeros = 0;
     
-  #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
+  #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       int row_nnz[nov];
       long col_extracted = 0;
@@ -238,7 +236,7 @@ double rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, i
 }
 
 template <class T>
-double rasmussen(T* mat, int nov, int number_of_times) {
+double rasmussen(T* mat, int nov, int number_of_times, int threads) {
   T* mat_t = new T[nov * nov];
   
   for (int i = 0; i < nov; i++) {
@@ -249,12 +247,10 @@ double rasmussen(T* mat, int nov, int number_of_times) {
 
   srand(time(0));
 
-  int nt = omp_get_max_threads();
-
   double sum_perm = 0;
   double sum_zeros = 0;
   
-  #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
+  #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       int row_nnz[nov];
       long col_extracted = 0;
@@ -320,16 +316,14 @@ double rasmussen(T* mat, int nov, int number_of_times) {
   return (sum_perm / number_of_times);
 }
 
-double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int number_of_times, int scale_intervals, int scale_times) {
+double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int number_of_times, int scale_intervals, int scale_times, int threads) {
 
   srand(time(0));
-
-  int nt = omp_get_max_threads();
 
   double sum_perm = 0;
   double sum_zeros = 0;
     
-  #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
+  #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       long col_extracted = 0;
 
@@ -400,16 +394,14 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
 }
 
 template <class T>
-double approximation_perman64(T* mat, int nov, int number_of_times, int scale_intervals, int scale_times) {
+double approximation_perman64(T* mat, int nov, int number_of_times, int scale_intervals, int scale_times, int threads) {
 
   srand(time(0));
-
-  int nt = omp_get_max_threads();
 
   double sum_perm = 0;
   double sum_zeros = 0;
     
-  #pragma omp parallel for num_threads(nt) reduction(+:sum_perm) reduction(+:sum_zeros)
+  #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       long col_extracted = 0;
 
@@ -478,10 +470,9 @@ double approximation_perman64(T* mat, int nov, int number_of_times, int scale_in
 }
 
 template <class T>
-double parallel_perman64_sparse(T* mat, int* cptrs, int* rows, T* cvals, int nov) {
-  const int a = omp_get_max_threads();
-  double x[64];   
-  double rs; //row sum
+double parallel_perman64_sparse(T* mat, int* cptrs, int* rows, T* cvals, int nov, int threads) {
+  float x[nov];   
+  float rs; //row sum
   double p = 1; //product of the elements in vector 'x'
   
   //create the x vector and initiate the permanent
@@ -494,27 +485,26 @@ double parallel_perman64_sparse(T* mat, int* cptrs, int* rows, T* cvals, int nov
     p *= x[j];   // product of the elements in vector 'x'
   }
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  int nt = omp_get_max_threads();
-  unsigned long long chunk_size = end / nt + 1;
+  long long chunk_size = end / threads + 1;
 
-  #pragma omp parallel num_threads(nt) firstprivate(x)
+  #pragma omp parallel num_threads(threads) firstprivate(x)
   { 
     int tid = omp_get_thread_num();
-    unsigned long long my_start = start + tid * chunk_size;
-    unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+    long long my_start = start + tid * chunk_size;
+    long long my_end = min(start + ((tid+1) * chunk_size), end);
     
-    double s;  //+1 or -1 
+    int s;  //+1 or -1 
     double prod; //product of the elements in vector 'x'
     double my_p = 0;
-    unsigned long long i = my_start;
-    unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+    long long i = my_start;
+    long long gray = (i-1) ^ ((i-1) >> 1);
 
     for (int k = 0; k < (nov-1); k++) {
-      if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+      if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
         for (int j = cptrs[k]; j < cptrs[k+1]; j++) {
           x[rows[j]] += cvals[j]; // see Nijenhuis and Wilf - update x vector entries
         }
@@ -531,6 +521,11 @@ double parallel_perman64_sparse(T* mat, int* cptrs, int* rows, T* cvals, int nov
       }
     }
     int k;
+
+    int prodSign = 1;
+    if(i & 1LL) {
+      prodSign = -1;
+    }
     while (i < my_end) {
       //compute the gray code
       k = __builtin_ctzll(i);
@@ -555,9 +550,9 @@ double parallel_perman64_sparse(T* mat, int* cptrs, int* rows, T* cvals, int nov
       }
 
       if(zero_num == 0) {
-        my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+        my_p += prodSign * prod; 
       }
-      
+      prodSign *= -1;
       i++;
     }
 
@@ -569,10 +564,9 @@ double parallel_perman64_sparse(T* mat, int* cptrs, int* rows, T* cvals, int nov
 }
 
 template <class T>
-double parallel_perman64(T* mat, int nov) {
-  const int a = omp_get_max_threads();
-  double x[64];   
-  double rs; //row sum
+double parallel_perman64(T* mat, int nov, int threads) {
+  float x[nov];   
+  float rs; //row sum
   double p = 1; //product of the elements in vector 'x'
   
   //create the x vector and initiate the permanent
@@ -593,37 +587,40 @@ double parallel_perman64(T* mat, int nov) {
     }
   }
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  int nt = omp_get_max_threads();
-  unsigned long long chunk_size = end / nt + 1;
+  long long chunk_size = end / threads + 1;
 
-  #pragma omp parallel num_threads(nt) firstprivate(x)
+  #pragma omp parallel num_threads(threads) firstprivate(x)
   { 
     int tid = omp_get_thread_num();
-    unsigned long long my_start = start + tid * chunk_size;
-    unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+    long long my_start = start + tid * chunk_size;
+    long long my_end = min(start + ((tid+1) * chunk_size), end);
     
-    double *xptr; 
-    double s;  //+1 or -1 
+    float *xptr; 
+    int s;  //+1 or -1 
     double prod; //product of the elements in vector 'x'
     double my_p = 0;
-    unsigned long long i = my_start;
-    unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+    long long i = my_start;
+    long long gray = (i-1) ^ ((i-1) >> 1);
 
     for (int k = 0; k < (nov-1); k++) {
-      if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
-        xptr = (double*)x;
+      if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
+        xptr = (float*)x;
         for (int j = 0; j < nov; j++) {
           *xptr += mat_t[(k * nov) + j]; // see Nijenhuis and Wilf - update x vector entries
           xptr++;
         }
       }
     }
-    
     int k;
+
+    int prodSign = 1;
+    if(i & 1LL) {
+      prodSign = -1;
+    }
     while (i < my_end) {
       //compute the gray code
       k = __builtin_ctzll(i);
@@ -632,13 +629,14 @@ double parallel_perman64(T* mat, int nov) {
       s = ((one << k) & gray) ? 1 : -1;
       
       prod = 1.0;
-      xptr = (double*)x;
+      xptr = (float*)x;
       for (int j = 0; j < nov; j++) {
         *xptr += s * mat_t[(k * nov) + j]; // see Nijenhuis and Wilf - update x vector entries
         prod *= *xptr++;  //product of the elements in vector 'x'
       }
 
-      my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+      my_p += prodSign * prod; 
+      prodSign *= -1;
       i++;
     }
 

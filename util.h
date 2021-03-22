@@ -337,21 +337,19 @@ void CreateMatrix(int dim, double density, bool binary, string file) {
 */
 
 template <class T>
-void ReadMatrix(T* & mat, int &dim, int &nnz) {
-	ifstream inFile("matrix.txt");
-
-	int i, j, val;
+void ReadMatrix(T* & mat, ifstream & inFile, int nov, bool generic) {
+	int i, j;
+	T val;
 	string line;
 
-	getline(inFile, line);
-	istringstream iss_first(line);
-	iss_first >> dim >> nnz;
-
-	mat = new T[dim * dim];
 	while (getline(inFile, line)) {
 		istringstream iss(line);
 		if (!(iss >> i >> j >> val)) { continue; } // erroneous line
-		mat[i * dim + j] = val;
+		if (generic) {
+			mat[i * nov + j] = val;
+		} else {
+			mat[i * nov + j] = 1;
+		}
 	}
 }
 

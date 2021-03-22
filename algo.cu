@@ -12,28 +12,28 @@ __global__ void kernel_xlocal(T* mat_t, double* x, double* p, int nov) {
     my_x[k] = x[k];
   }
   
-  unsigned long long number_of_threads = blockDim.x * gridDim.x;
+  long long number_of_threads = blockDim.x * gridDim.x;
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  unsigned long long chunk_size = end / number_of_threads + 1;
+  long long chunk_size = end / number_of_threads + 1;
 
   
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
-  unsigned long long my_start = start + tid * chunk_size;
-  unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+  long long my_start = start + tid * chunk_size;
+  long long my_end = min(start + ((tid+1) * chunk_size), end);
     
   float *xptr; 
-  double s;  //+1 or -1 
+  int s;  //+1 or -1 
   double prod; //product of the elements in vector 'x'
   double my_p = 0;
-  unsigned long long i = my_start;
-  unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+  long long i = my_start;
+  long long gray = (i-1) ^ ((i-1) >> 1);
 
   for (int k = 0; k < (nov-1); k++) {
-    if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+    if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
       xptr = (float*)my_x;
       for (int j = 0; j < nov; j++) {
         *xptr += mat_t[(k * nov) + j]; // see Nijenhuis and Wilf - update x vector entries
@@ -42,14 +42,17 @@ __global__ void kernel_xlocal(T* mat_t, double* x, double* p, int nov) {
     }
   }
     
-  unsigned long long gray_diff;
+  long long gray_diff;
   int k;
+
+  int prodSign = 1;
+  if(i & 1LL) {
+    prodSign = -1;
+  }
+
   while (i < my_end) {
     gray_diff = (i ^ (i >> 1)) ^ gray;
-    k = 0;
-    for (unsigned long long j = gray_diff; j > 1; j /= 2) {
-      k++;
-    }
+    k = __ffsll(gray_diff) - 1;
     gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
     //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
     s = ((one << k) & gray) ? 1 : -1;
@@ -61,7 +64,8 @@ __global__ void kernel_xlocal(T* mat_t, double* x, double* p, int nov) {
       prod *= *xptr++;  //product of the elements in vector 'x'
     }
 
-    my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+    my_p += prodSign * prod; 
+    prodSign *= -1;
     i++;
   }
 
@@ -81,39 +85,42 @@ __global__ void kernel_xshared(T* mat_t, double* x, double* p, int nov) {
     my_x[thread_id*nov + k] = x[k];
   }
   
-  unsigned long long number_of_threads = blockDim.x * gridDim.x;
+  long long number_of_threads = blockDim.x * gridDim.x;
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  unsigned long long chunk_size = end / number_of_threads + 1;
+  long long chunk_size = end / number_of_threads + 1;
 
-  unsigned long long my_start = start + tid * chunk_size;
-  unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+  long long my_start = start + tid * chunk_size;
+  long long my_end = min(start + ((tid+1) * chunk_size), end);
      
-  double s;  //+1 or -1 
+  int s;  //+1 or -1 
   double prod; //product of the elements in vector 'x'
   double my_p = 0;
-  unsigned long long i = my_start;
-  unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+  long long i = my_start;
+  long long gray = (i-1) ^ ((i-1) >> 1);
 
   for (int k = 0; k < (nov-1); k++) {
-    if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+    if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
       for (int j = 0; j < nov; j++) {
         my_x[thread_id*nov + j] += mat_t[(k * nov) + j]; // see Nijenhuis and Wilf - update x vector entries
       }
     }
   }
     
-  unsigned long long gray_diff;
+  long long gray_diff;
   int k;
+
+  int prodSign = 1;
+  if(i & 1LL) {
+    prodSign = -1;
+  }
+
   while (i < my_end) {
     gray_diff = (i ^ (i >> 1)) ^ gray;
-    k = 0;
-    for (unsigned long long j = gray_diff; j > 1; j /= 2) {
-      k++;
-    }
+    k = __ffsll(gray_diff) - 1;
     gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
     //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
     s = ((one << k) & gray) ? 1 : -1;
@@ -124,7 +131,8 @@ __global__ void kernel_xshared(T* mat_t, double* x, double* p, int nov) {
       prod *= my_x[thread_id*nov + j];  //product of the elements in vector 'x'
     }
 
-    my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+    my_p += prodSign * prod; 
+    prodSign *= -1;
     i++;
   }
 
@@ -144,40 +152,43 @@ __global__ void kernel_xshared_coalescing(T* mat_t, double* x, double* p, int no
   for (int k = 0; k < nov; k++) {
     my_x[block_dim*k + thread_id] = x[k];
   }
-  
-  unsigned long long number_of_threads = blockDim.x * gridDim.x;
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
-  
-  unsigned long long chunk_size = end / number_of_threads + 1;
+  long long number_of_threads = blockDim.x * gridDim.x;
 
-  unsigned long long my_start = start + tid * chunk_size;
-  unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  double s;  //+1 or -1 
+  long long chunk_size = end / number_of_threads + 1;
+
+  long long my_start = start + tid * chunk_size;
+  long long my_end = min(start + ((tid+1) * chunk_size), end);
+  
+  int s;  //+1 or -1 
   double prod; //product of the elements in vector 'x'
   double my_p = 0;
-  unsigned long long i = my_start;
-  unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+  long long i = my_start;
+  long long gray = (i-1) ^ ((i-1) >> 1);
 
   for (int k = 0; k < (nov-1); k++) {
-    if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+    if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
       for (int j = 0; j < nov; j++) {
         my_x[block_dim*j + thread_id] += mat_t[(k * nov) + j]; // see Nijenhuis and Wilf - update x vector entries
       }
     }
   }
-    
-  unsigned long long gray_diff;
+  
+  long long gray_diff;
   int k;
+
+  int prodSign = 1;
+  if(i & 1LL) {
+    prodSign = -1;
+  }
+
   while (i < my_end) {
     gray_diff = (i ^ (i >> 1)) ^ gray;
-    k = 0;
-    for (unsigned long long j = gray_diff; j > 1; j /= 2) {
-      k++;
-    }
+    k = __ffsll(gray_diff) - 1;
     gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
     //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
     s = ((one << k) & gray) ? 1 : -1;
@@ -188,7 +199,8 @@ __global__ void kernel_xshared_coalescing(T* mat_t, double* x, double* p, int no
       prod *= my_x[block_dim*j + thread_id];  //product of the elements in vector 'x'
     }
 
-    my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+    my_p += prodSign * prod; 
+    prodSign *= -1;
     i++;
   }
 
@@ -217,39 +229,41 @@ __global__ void kernel_xshared_coalescing_mshared(T* mat_t, double* x, double* p
 
   __syncthreads();
 
-  unsigned long long number_of_threads = blockDim.x * gridDim.x;
+  long long number_of_threads = blockDim.x * gridDim.x;
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  unsigned long long chunk_size = end / number_of_threads + 1;
+  long long chunk_size = end / number_of_threads + 1;
 
-  unsigned long long my_start = start + tid * chunk_size;
-  unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+  long long my_start = start + tid * chunk_size;
+  long long my_end = min(start + ((tid+1) * chunk_size), end);
   
-  double s;  //+1 or -1 
+  int s;  //+1 or -1 
   double prod; //product of the elements in vector 'x'
   double my_p = 0;
-  unsigned long long i = my_start;
-  unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+  long long i = my_start;
+  long long gray = (i-1) ^ ((i-1) >> 1);
 
   for (int k = 0; k < (nov-1); k++) {
-    if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+    if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
       for (int j = 0; j < nov; j++) {
         my_x[block_dim*j + thread_id] += shared_mat_t[(k * nov) + j]; // see Nijenhuis and Wilf - update x vector entries
       }
     }
   }
     
-  unsigned long long gray_diff;
+  long long gray_diff;
   int k;
+
+  int prodSign = 1;
+  if (i & 1LL) {
+    prodSign = -1;
+  }
   while (i < my_end) {
     gray_diff = (i ^ (i >> 1)) ^ gray;
-    k = 0;
-    for (unsigned long long j = gray_diff; j > 1; j /= 2) {
-      k++;
-    }
+    k = __ffsll(gray_diff) - 1;
     gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
     //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
     s = ((one << k) & gray) ? 1 : -1;
@@ -260,7 +274,8 @@ __global__ void kernel_xshared_coalescing_mshared(T* mat_t, double* x, double* p
       prod *= my_x[block_dim*j + thread_id];  //product of the elements in vector 'x'
     }
 
-    my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+    my_p += prodSign * prod; 
+    prodSign *= -1;
     i++;
   }
 
@@ -342,7 +357,7 @@ __global__ void kernel_xglobal_mshared(T* mat_t, double *x_orig, double* x, doub
 }
 
 template <class T>
-__global__ void kernel_rasmussen(T* mat, double* p, int nov) {
+__global__ void kernel_rasmussen(T* mat, double* p, int nov, int rand) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
   int thread_id = threadIdx.x;
   int block_dim = blockDim.x;
@@ -358,7 +373,7 @@ __global__ void kernel_rasmussen(T* mat, double* p, int nov) {
   __syncthreads();
 
   curandState_t state;
-  curand_init(tid,0,0,&state);
+  curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
   
@@ -404,7 +419,7 @@ __global__ void kernel_rasmussen(T* mat, double* p, int nov) {
 }
 
 template <class T>
-__global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, int nov, int scale_intervals, int scale_times) {
+__global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, int nov, int scale_intervals, int scale_times, int rand) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
   int thread_id = threadIdx.x;
   int block_dim = blockDim.x;
@@ -420,7 +435,7 @@ __global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, 
   __syncthreads();
 
   curandState_t state;
-  curand_init(tid,0,0,&state);
+  curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
   bool is_break;
@@ -518,7 +533,7 @@ __global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, 
 }
 
 template <class T>
-__global__ void kernel_approximation_shared_scale_vectors(T* mat, double* p, float* d_r, float* d_c, int nov, int scale_intervals, int scale_times) {
+__global__ void kernel_approximation_shared_scale_vectors(T* mat, double* p, float* d_r, float* d_c, int nov, int scale_intervals, int scale_times, int rand) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
   int thread_id = threadIdx.x;
   int block_dim = blockDim.x;
@@ -541,7 +556,7 @@ __global__ void kernel_approximation_shared_scale_vectors(T* mat, double* p, flo
   __syncthreads();
 
   curandState_t state;
-  curand_init(tid,0,0,&state);
+  curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
   
@@ -896,8 +911,9 @@ double gpu_perman64_rasmussen(T* mat, int nov, int number_of_times) {
 
   cudaMemcpy( d_mat, mat, (nov * nov) * sizeof(T), cudaMemcpyHostToDevice);
 
+  srand(time(0));
   double stt = omp_get_wtime();
-  kernel_rasmussen<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, nov);
+  kernel_rasmussen<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, nov, rand());
   cudaDeviceSynchronize();
   double enn = omp_get_wtime();
   cout << "kernel" << " in " << (enn - stt) << endl;
@@ -937,6 +953,8 @@ double gpu_perman64_approximation(T* mat, int nov, int number_of_times, int scal
 
   cudaMemcpy( d_mat, mat, (nov * nov) * sizeof(T), cudaMemcpyHostToDevice);
 
+  srand(time(0));
+
   if (scale_intervals == -1) {
     h_r = new float[nov];
     h_c = new float[nov];
@@ -969,7 +987,7 @@ double gpu_perman64_approximation(T* mat, int nov, int number_of_times, int scal
     cudaMemcpy( d_c, h_c, (nov) * sizeof(float), cudaMemcpyHostToDevice);
 
     double stt = omp_get_wtime();
-    kernel_approximation_shared_scale_vectors<<< grid_size , block_size , (nov*nov*sizeof(T) + 2*nov*sizeof(float)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times);
+    kernel_approximation_shared_scale_vectors<<< grid_size , block_size , (nov*nov*sizeof(T) + 2*nov*sizeof(float)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times, rand());
     cudaDeviceSynchronize();
     double enn = omp_get_wtime();
     cout << "kernel" << " in " << (enn - stt) << endl;
@@ -979,7 +997,7 @@ double gpu_perman64_approximation(T* mat, int nov, int number_of_times, int scal
     cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
 
     double stt = omp_get_wtime();
-    kernel_approximation<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times);
+    kernel_approximation<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times, rand());
     cudaDeviceSynchronize();
     double enn = omp_get_wtime();
     cout << "kernel" << " in " << (enn - stt) << endl;
@@ -1020,27 +1038,27 @@ __global__ void kernel_xlocal_sparse(int* cptrs, int* rows, T* cvals, double* x,
     my_x[k] = x[k];
   }
   
-  unsigned long long number_of_threads = blockDim.x * gridDim.x;
+  long long number_of_threads = blockDim.x * gridDim.x;
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  unsigned long long chunk_size = end / number_of_threads + 1;
+  long long chunk_size = end / number_of_threads + 1;
 
   
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
-  unsigned long long my_start = start + tid * chunk_size;
-  unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+  long long my_start = start + tid * chunk_size;
+  long long my_end = min(start + ((tid+1) * chunk_size), end);
   
-  double s;  //+1 or -1 
+  int s;  //+1 or -1 
   double prod; //product of the elements in vector 'x'
   double my_p = 0;
-  unsigned long long i = my_start;
-  unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+  long long i = my_start;
+  long long gray = (i-1) ^ ((i-1) >> 1);
 
   for (int k = 0; k < (nov-1); k++) {
-    if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+    if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
       for (int j = cptrs[k]; j < cptrs[k+1]; j++) {
         my_x[rows[j]] += cvals[j]; // see Nijenhuis and Wilf - update x vector entries
       }
@@ -1057,14 +1075,17 @@ __global__ void kernel_xlocal_sparse(int* cptrs, int* rows, T* cvals, double* x,
     }
   }
     
-  unsigned long long gray_diff;
+  long long gray_diff;
   int k;
+
+  int prodSign = 1;
+  if(i & 1LL) {
+    prodSign = -1;
+  }
+
   while (i < my_end) {
     gray_diff = (i ^ (i >> 1)) ^ gray;
-    k = 0;
-    for (unsigned long long j = gray_diff; j > 1; j /= 2) {
-      k++;
-    }
+    k = __ffsll(gray_diff) - 1;
     gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
     //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
     s = ((one << k) & gray) ? 1 : -1;
@@ -1086,8 +1107,9 @@ __global__ void kernel_xlocal_sparse(int* cptrs, int* rows, T* cvals, double* x,
     }
 
     if(zero_num == 0) {
-      my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+      my_p += prodSign * prod; 
     }
+    prodSign *= -1;
     i++;
   }
 
@@ -1107,25 +1129,25 @@ __global__ void kernel_xshared_sparse(int* cptrs, int* rows, T* cvals, double* x
     my_x[thread_id*nov + k] = x[k];
   }
   
-  unsigned long long number_of_threads = blockDim.x * gridDim.x;
+  long long number_of_threads = blockDim.x * gridDim.x;
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  unsigned long long chunk_size = end / number_of_threads + 1;
+  long long chunk_size = end / number_of_threads + 1;
 
-  unsigned long long my_start = start + tid * chunk_size;
-  unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+  long long my_start = start + tid * chunk_size;
+  long long my_end = min(start + ((tid+1) * chunk_size), end);
      
-  double s;  //+1 or -1 
+  int s;  //+1 or -1 
   double prod; //product of the elements in vector 'x'
   double my_p = 0;
-  unsigned long long i = my_start;
-  unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+  long long i = my_start;
+  long long gray = (i-1) ^ ((i-1) >> 1);
 
   for (int k = 0; k < (nov-1); k++) {
-    if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+    if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
       for (int j = cptrs[k]; j < cptrs[k+1]; j++) {
         my_x[thread_id*nov + rows[j]] += cvals[j]; // see Nijenhuis and Wilf - update x vector entries
       }
@@ -1142,14 +1164,17 @@ __global__ void kernel_xshared_sparse(int* cptrs, int* rows, T* cvals, double* x
     }
   }
     
-  unsigned long long gray_diff;
+  long long gray_diff;
   int k;
+
+  int prodSign = 1;
+  if(i & 1LL) {
+    prodSign = -1;
+  }
+
   while (i < my_end) {
     gray_diff = (i ^ (i >> 1)) ^ gray;
-    k = 0;
-    for (unsigned long long j = gray_diff; j > 1; j /= 2) {
-      k++;
-    }
+    k = __ffsll(gray_diff) - 1;
     gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
     //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
     s = ((one << k) & gray) ? 1 : -1;
@@ -1171,8 +1196,9 @@ __global__ void kernel_xshared_sparse(int* cptrs, int* rows, T* cvals, double* x
     }
 
     if(zero_num == 0) {
-      my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+      my_p += prodSign * prod; 
     }
+    prodSign *= -1;
     i++;
   }
 
@@ -1193,25 +1219,25 @@ __global__ void kernel_xshared_coalescing_sparse(int* cptrs, int* rows, T* cvals
     my_x[block_dim*k + thread_id] = x[k];
   }
   
-  unsigned long long number_of_threads = blockDim.x * gridDim.x;
+  long long number_of_threads = blockDim.x * gridDim.x;
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  unsigned long long chunk_size = end / number_of_threads + 1;
+  long long chunk_size = end / number_of_threads + 1;
 
-  unsigned long long my_start = start + tid * chunk_size;
-  unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+  long long my_start = start + tid * chunk_size;
+  long long my_end = min(start + ((tid+1) * chunk_size), end);
   
-  double s;  //+1 or -1 
+  int s;  //+1 or -1 
   double prod; //product of the elements in vector 'x'
   double my_p = 0;
-  unsigned long long i = my_start;
-  unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+  long long i = my_start;
+  long long gray = (i-1) ^ ((i-1) >> 1);
 
   for (int k = 0; k < (nov-1); k++) {
-    if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+    if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
       for (int j = cptrs[k]; j < cptrs[k+1]; j++) {
         my_x[block_dim*rows[j] + thread_id] += cvals[j]; // see Nijenhuis and Wilf - update x vector entries
       }
@@ -1228,14 +1254,17 @@ __global__ void kernel_xshared_coalescing_sparse(int* cptrs, int* rows, T* cvals
     }
   }
     
-  unsigned long long gray_diff;
+  long long gray_diff;
   int k;
+
+  int prodSign = 1;
+  if(i & 1LL) {
+    prodSign = -1;
+  }
+
   while (i < my_end) {
     gray_diff = (i ^ (i >> 1)) ^ gray;
-    k = 0;
-    for (unsigned long long j = gray_diff; j > 1; j /= 2) {
-      k++;
-    }
+    k = __ffsll(gray_diff) - 1;
     gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
     //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
     s = ((one << k) & gray) ? 1 : -1;
@@ -1257,8 +1286,9 @@ __global__ void kernel_xshared_coalescing_sparse(int* cptrs, int* rows, T* cvals
     }
 
     if(zero_num == 0) {
-      my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+      my_p += prodSign * prod; 
     }
+    prodSign *= -1;
     i++;
   }
 
@@ -1291,25 +1321,25 @@ __global__ void kernel_xshared_coalescing_mshared_sparse(int* cptrs, int* rows, 
 
   __syncthreads();
 
-  unsigned long long number_of_threads = blockDim.x * gridDim.x;
+  long long number_of_threads = blockDim.x * gridDim.x;
 
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
+  long long one = 1;
+  long long start = 1;
+  long long end = (1LL << (nov-1));
   
-  unsigned long long chunk_size = end / number_of_threads + 1;
+  long long chunk_size = end / number_of_threads + 1;
 
-  unsigned long long my_start = start + tid * chunk_size;
-  unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
+  long long my_start = start + tid * chunk_size;
+  long long my_end = min(start + ((tid+1) * chunk_size), end);
   
-  double s;  //+1 or -1 
+  int s;  //+1 or -1 
   double prod; //product of the elements in vector 'x'
   double my_p = 0;
-  unsigned long long i = my_start;
-  unsigned long long gray = (i-1) ^ ((i-1) >> 1);
+  long long i = my_start;
+  long long gray = (i-1) ^ ((i-1) >> 1);
 
   for (int k = 0; k < (nov-1); k++) {
-    if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
+    if ((gray >> k) & 1LL) { // whether kth column should be added to x vector or not
       for (int j = shared_cptrs[k]; j < shared_cptrs[k+1]; j++) {
         my_x[block_dim*shared_rows[j] + thread_id] += shared_cvals[j]; // see Nijenhuis and Wilf - update x vector entries
       }
@@ -1326,14 +1356,17 @@ __global__ void kernel_xshared_coalescing_mshared_sparse(int* cptrs, int* rows, 
     }
   }
     
-  unsigned long long gray_diff;
+  long long gray_diff;
   int k;
+
+  int prodSign = 1;
+  if(i & 1LL) {
+    prodSign = -1;
+  }
+
   while (i < my_end) {
     gray_diff = (i ^ (i >> 1)) ^ gray;
-    k = 0;
-    for (unsigned long long j = gray_diff; j > 1; j /= 2) {
-      k++;
-    }
+    k = __ffsll(gray_diff) - 1;
     gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
     //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
     s = ((one << k) & gray) ? 1 : -1;
@@ -1355,8 +1388,9 @@ __global__ void kernel_xshared_coalescing_mshared_sparse(int* cptrs, int* rows, 
     }
 
     if(zero_num == 0) {
-      my_p += ((i&1ULL)? -1.0:1.0) * prod; 
+      my_p += prodSign * prod; 
     }
+    prodSign *= -1;
     i++;
   }
 
@@ -1364,7 +1398,7 @@ __global__ void kernel_xshared_coalescing_mshared_sparse(int* cptrs, int* rows, 
   
 }
 
-__global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int nov, int nnz) {
+__global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int nov, int nnz, int rand) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
   int thread_id = threadIdx.x;
   int block_dim = blockDim.x;
@@ -1392,7 +1426,7 @@ __global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int no
   __syncthreads();
 
   curandState_t state;
-  curand_init(tid,0,0,&state);
+  curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
   
@@ -1439,7 +1473,7 @@ __global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int no
   p[tid] = perm;
 }
 
-__global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, int* rows, double* p, float* d_r, float* d_c, int nov, int nnz, int scale_intervals, int scale_times) {
+__global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, int* rows, double* p, float* d_r, float* d_c, int nov, int nnz, int scale_intervals, int scale_times, int rand) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
   int thread_id = threadIdx.x;
   int block_dim = blockDim.x;
@@ -1471,7 +1505,7 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
   __syncthreads();
 
   curandState_t state;
-  curand_init(tid,0,0,&state);
+  curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
   bool is_break;
@@ -1574,7 +1608,7 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
   p[tid] = perm;
 }
 
-__global__ void kernel_approximation_shared_scale_vectors_sparse(int* rptrs, int* cols, int* cptrs, int* rows, double* p, float* d_r, float* d_c, int nov, int nnz, int scale_intervals, int scale_times) {
+__global__ void kernel_approximation_shared_scale_vectors_sparse(int* rptrs, int* cols, int* cptrs, int* rows, double* p, float* d_r, float* d_c, int nov, int nnz, int scale_intervals, int scale_times, int rand) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
   int thread_id = threadIdx.x;
   int block_dim = blockDim.x;
@@ -1612,7 +1646,7 @@ __global__ void kernel_approximation_shared_scale_vectors_sparse(int* rptrs, int
   __syncthreads();
 
   curandState_t state;
-  curand_init(tid,0,0,&state);
+  curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
   
@@ -1919,8 +1953,9 @@ double gpu_perman64_rasmussen_sparse(int *rptrs, int *cols, int nov, int nnz, in
   cudaMemcpy( d_rptrs, rptrs, (nov + 1) * sizeof(int), cudaMemcpyHostToDevice);
   cudaMemcpy( d_cols, cols, (nnz) * sizeof(int), cudaMemcpyHostToDevice);
 
+  srand(time(0));
   double stt = omp_get_wtime();
-  kernel_rasmussen_sparse<<< grid_size , block_size , ((nnz + nov + 1)*sizeof(int)) >>> (d_rptrs, d_cols, d_p, nov, nnz);
+  kernel_rasmussen_sparse<<< grid_size , block_size , ((nnz + nov + 1)*sizeof(int)) >>> (d_rptrs, d_cols, d_p, nov, nnz, rand());
   cudaDeviceSynchronize();
   double enn = omp_get_wtime();
   cout << "kernel" << " in " << (enn - stt) << endl;
@@ -1966,6 +2001,8 @@ double gpu_perman64_approximation_sparse(int *cptrs, int *rows, int *rptrs, int 
   cudaMemcpy( d_cptrs, cptrs, (nov + 1) * sizeof(int), cudaMemcpyHostToDevice);
   cudaMemcpy( d_rows, rows, (nnz) * sizeof(int), cudaMemcpyHostToDevice);
 
+  srand(time(0));
+
   if (scale_intervals == -1) {
     h_r = new float[nov];
     h_c = new float[nov];
@@ -2002,7 +2039,7 @@ double gpu_perman64_approximation_sparse(int *cptrs, int *rows, int *rptrs, int 
     cudaMemcpy( d_c, h_c, (nov) * sizeof(float), cudaMemcpyHostToDevice);
 
     double stt = omp_get_wtime();
-    kernel_approximation_shared_scale_vectors_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int) + 2*nov*sizeof(float)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times);
+    kernel_approximation_shared_scale_vectors_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int) + 2*nov*sizeof(float)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times, rand());
     cudaDeviceSynchronize();
     double enn = omp_get_wtime();
     cout << "kernel" << " in " << (enn - stt) << endl;
@@ -2012,7 +2049,7 @@ double gpu_perman64_approximation_sparse(int *cptrs, int *rows, int *rptrs, int 
     cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
 
     double stt = omp_get_wtime();
-    kernel_approximation_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times);
+    kernel_approximation_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times, rand());
     cudaDeviceSynchronize();
     double enn = omp_get_wtime();
     cout << "kernel" << " in " << (enn - stt) << endl;
