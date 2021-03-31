@@ -209,7 +209,7 @@ __global__ void kernel_xshared_coalescing(T* mat_t, double* x, double* p, int no
 }
 
 template <class T>
-__global__ void kernel_xshared_coalescing_mshared(T* mat_t, double* x, double* p, int nov) {
+__global__ void kernel_xshared_coalescing_mshared(T* mat_t, double* x, double* p, int nov, long long start, long long end) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
   int thread_id = threadIdx.x;
   int block_dim = blockDim.x;
@@ -232,8 +232,6 @@ __global__ void kernel_xshared_coalescing_mshared(T* mat_t, double* x, double* p
   long long number_of_threads = blockDim.x * gridDim.x;
 
   long long one = 1;
-  long long start = 1;
-  long long end = (1LL << (nov-1));
   
   long long chunk_size = end / number_of_threads + 1;
 
@@ -283,78 +281,6 @@ __global__ void kernel_xshared_coalescing_mshared(T* mat_t, double* x, double* p
   
 }
 
-template <class T>
-__global__ void kernel_xglobal_mshared(T* mat_t, double *x_orig, double* x, double* p, int nov) {
-  int thread_id = threadIdx.x;
-  int block_id = blockIdx.x;
-  int block_dim = blockDim.x;
-  int grid_dim = gridDim.x;
-  int tid = thread_id + (block_id * block_dim);
-
-  extern __shared__ float shared_mem[]; 
-  T *shared_mat_t = (T*) shared_mem; // size = nov * nov
-
-  for (int k = 0; k < nov; k++) {
-    x[block_dim*nov*block_id + block_dim*k + thread_id] = x_orig[k];
-  }
-
-  for (int k = 0; k < ((nov*nov)/block_dim + 1); k++) {
-    if ((block_dim * k + thread_id) < (nov * nov))
-    shared_mat_t[block_dim * k + thread_id] = mat_t[block_dim * k + thread_id];
-  }
-
-  __syncthreads();
-
-  unsigned long long number_of_threads = block_dim * grid_dim;
-
-  unsigned long long one = 1;
-  unsigned long long start = 1;
-  unsigned long long end = (1ULL << (nov-1));
-  
-  unsigned long long chunk_size = end / number_of_threads + 1;
-
-  unsigned long long my_start = start + tid * chunk_size;
-  unsigned long long my_end = min(start + ((tid+1) * chunk_size), end);
-  
-  double s;  //+1 or -1 
-  double prod; //product of the elements in vector 'x'
-  double my_p = 0;
-  unsigned long long i = my_start;
-  unsigned long long gray = (i-1) ^ ((i-1) >> 1);
-
-  for (int k = 0; k < (nov-1); k++) {
-    if ((gray >> k) & 1ULL) { // whether kth column should be added to x vector or not
-      for (int j = 0; j < nov; j++) {
-        x[block_dim*nov*block_id + block_dim*j + thread_id] += shared_mat_t[(k * nov) + j]; // see Nijenhuis and Wilf - update x vector entries
-      }
-    }
-  }
-    
-  unsigned long long gray_diff;
-  int k;
-  while (i < my_end) {
-    gray_diff = (i ^ (i >> 1)) ^ gray;
-    k = 0;
-    for (unsigned long long j = gray_diff; j > 1; j /= 2) {
-      k++;
-    }
-    gray ^= (one << k); // Gray-code order: 1,3,2,6,7,5,4,12,13,15,...
-    //decide if subtract of not - if the kth bit of gray is one then 1, otherwise -1
-    s = ((one << k) & gray) ? 1 : -1;
-      
-    prod = 1.0;
-    for (int j = 0; j < nov; j++) {
-      x[block_dim*nov*block_id + block_dim*j + thread_id] += s * shared_mat_t[(k * nov) + j]; // see Nijenhuis and Wilf - update x vector entries
-      prod *= x[block_dim*nov*block_id + block_dim*j + thread_id];  //product of the elements in vector 'x'
-    }
-
-    my_p += ((i&1ULL)? -1.0:1.0) * prod; 
-    i++;
-  }
-
-  p[tid] = my_p;
-  
-}
 
 template <class T>
 __global__ void kernel_rasmussen(T* mat, double* p, int nov, int rand) {
@@ -814,8 +740,11 @@ double gpu_perman64_xshared_coalescing_mshared(T* mat, int nov, int grid_dim, in
   cudaMemcpy( d_x, x, (nov) * sizeof(double), cudaMemcpyHostToDevice);
   cudaMemcpy( d_mat_t, mat_t, (nov * nov) * sizeof(T), cudaMemcpyHostToDevice);
 
+  long long start = 1;
+  long long end = (1LL << (nov-1));
+
   double stt = omp_get_wtime();
-  kernel_xshared_coalescing_mshared<<< grid_dim , block_dim , (nov*block_dim*sizeof(float) + nov*nov*sizeof(T)) >>> (d_mat_t, d_x, d_p, nov);
+  kernel_xshared_coalescing_mshared<<< grid_dim , block_dim , (nov*block_dim*sizeof(float) + nov*nov*sizeof(T)) >>> (d_mat_t, d_x, d_p, nov, start, end);
   cudaDeviceSynchronize();
   double enn = omp_get_wtime();
   cout << "kernel" << " in " << (enn - stt) << endl;
@@ -837,10 +766,13 @@ double gpu_perman64_xshared_coalescing_mshared(T* mat, int nov, int grid_dim, in
 }
 
 template <class T>
-double gpu_perman64_xglobal(T* mat, int nov, int grid_dim, int block_dim) {
+double gpu_perman64_xshared_coalescing_mshared_multigpu(T* mat, int nov, int grid_dim, int block_dim) {
   double x[nov]; 
   double rs; //row sum
   double p = 1; //product of the elements in vector 'x'
+  double p_partial[2];
+  p_partial[0] = 0;
+  p_partial[1] = 0;
   
   //create the x vector and initiate the permanent
   for (int j = 0; j < nov; j++) {
@@ -860,38 +792,80 @@ double gpu_perman64_xglobal(T* mat, int nov, int grid_dim, int block_dim) {
     }
   }
 
-  cudaSetDevice(1);
-  T *d_mat_t;
-  double *d_x_orig, *d_x, *d_p;
-  double *h_p = new double[grid_dim * block_dim];
+  long long start = 1;
+  long long end = (1LL << (nov-1));
+  long long mid = ((end - start) / 4) * 3;
 
-  cudaMalloc( &d_x_orig, (nov) * sizeof(double));
-  cudaMalloc( &d_x, (block_dim * grid_dim * nov) * sizeof(double));
-  cudaMalloc( &d_p, (grid_dim * block_dim) * sizeof(double));
-  cudaMalloc( &d_mat_t, (nov * nov) * sizeof(T));
+  #pragma omp parallel
+  {
+    #pragma omp single
+    {
+      #pragma omp task 
+      {
+        cudaSetDevice(1);
+        T *d_mat_t;
+        double *d_x, *d_p;
+        double *h_p = new double[grid_dim * block_dim];
 
-  cudaMemcpy( d_x_orig, x, (nov) * sizeof(double), cudaMemcpyHostToDevice);
-  cudaMemcpy( d_mat_t, mat_t, (nov * nov) * sizeof(T), cudaMemcpyHostToDevice);
+        cudaMalloc( &d_x, (nov) * sizeof(double));
+        cudaMalloc( &d_p, (grid_dim * block_dim) * sizeof(double));
+        cudaMalloc( &d_mat_t, (nov * nov) * sizeof(T));
 
-  double stt = omp_get_wtime();
-  kernel_xglobal_mshared<<< grid_dim , block_dim, nov*nov*sizeof(T) >>> (d_mat_t, d_x_orig, d_x, d_p, nov);
-  cudaDeviceSynchronize();
-  double enn = omp_get_wtime();
-  cout << "kernel" << " in " << (enn - stt) << endl;
-  
-  cudaMemcpy( h_p, d_p, grid_dim * block_dim * sizeof(double), cudaMemcpyDeviceToHost);
+        cudaMemcpy( d_x, x, (nov) * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy( d_mat_t, mat_t, (nov * nov) * sizeof(T), cudaMemcpyHostToDevice);
 
-  cudaFree(d_mat_t);
-  cudaFree(d_x_orig);
-  cudaFree(d_x);
-  cudaFree(d_p);
+        double stt = omp_get_wtime();
+        kernel_xshared_coalescing_mshared<<< grid_dim , block_dim , (nov*block_dim*sizeof(float) + nov*nov*sizeof(T)) >>> (d_mat_t, d_x, d_p, nov, start, mid);
+        cudaDeviceSynchronize();
+        double enn = omp_get_wtime();
+        cout << "kernel1" << " in " << (enn - stt) << endl;
+        
+        cudaMemcpy( h_p, d_p, grid_dim * block_dim * sizeof(double), cudaMemcpyDeviceToHost);
 
-  for (int i = 0; i < grid_dim * block_dim; i++) {
-    p += h_p[i];
+        cudaFree(d_mat_t);
+        cudaFree(d_x);
+        cudaFree(d_p);
+        for (int i = 0; i < grid_dim * block_dim; i++) {
+          p_partial[0] += h_p[i];
+        }
+        delete[] h_p;
+      }
+      #pragma omp task 
+      {
+        cudaSetDevice(2);
+        T *d_mat_t;
+        double *d_x, *d_p;
+        double *h_p = new double[grid_dim * block_dim];
+
+        cudaMalloc( &d_x, (nov) * sizeof(double));
+        cudaMalloc( &d_p, (grid_dim * block_dim) * sizeof(double));
+        cudaMalloc( &d_mat_t, (nov * nov) * sizeof(T));
+
+        cudaMemcpy( d_x, x, (nov) * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy( d_mat_t, mat_t, (nov * nov) * sizeof(T), cudaMemcpyHostToDevice);
+
+        double stt = omp_get_wtime();
+        kernel_xshared_coalescing_mshared<<< grid_dim , block_dim , (nov*block_dim*sizeof(float) + nov*nov*sizeof(T)) >>> (d_mat_t, d_x, d_p, nov, mid, end);
+        cudaDeviceSynchronize();
+        double enn = omp_get_wtime();
+        cout << "kernel2" << " in " << (enn - stt) << endl;
+        
+        cudaMemcpy( h_p, d_p, grid_dim * block_dim * sizeof(double), cudaMemcpyDeviceToHost);
+
+        cudaFree(d_mat_t);
+        cudaFree(d_x);
+        cudaFree(d_p);
+        for (int i = 0; i < grid_dim * block_dim; i++) {
+          p_partial[1] += h_p[i];
+        }
+        delete[] h_p;
+      }
+    }
   }
 
   delete [] mat_t;
-  delete[] h_p;
+  p += p_partial[0];
+  p += p_partial[1];
 
   return((4*(nov&1)-2) * p);
 }
@@ -1297,7 +1271,7 @@ __global__ void kernel_xshared_coalescing_sparse(int* cptrs, int* rows, T* cvals
 }
 
 template <class T>
-__global__ void kernel_xshared_coalescing_mshared_sparse(int* cptrs, int* rows, T* cvals, double* x, double* p, int nov, int total) {
+__global__ void kernel_xshared_coalescing_mshared_sparse(int* cptrs, int* rows, T* cvals, double* x, double* p, int nov, int total, long long start, long long end) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
   int thread_id = threadIdx.x;
   int block_dim = blockDim.x;
@@ -1324,8 +1298,6 @@ __global__ void kernel_xshared_coalescing_mshared_sparse(int* cptrs, int* rows, 
   long long number_of_threads = blockDim.x * gridDim.x;
 
   long long one = 1;
-  long long start = 1;
-  long long end = (1LL << (nov-1));
   
   long long chunk_size = end / number_of_threads + 1;
 
@@ -1912,8 +1884,11 @@ double gpu_perman64_xshared_coalescing_mshared_sparse(T* mat, int* cptrs, int* r
   cudaMemcpy( d_rows, rows, (total) * sizeof(int), cudaMemcpyHostToDevice);
   cudaMemcpy( d_cvals, cvals, (total) * sizeof(T), cudaMemcpyHostToDevice);
 
+  long long start = 1;
+  long long end = (1LL << (nov-1));
+
   double stt = omp_get_wtime();
-  kernel_xshared_coalescing_mshared_sparse<<< grid_dim , block_dim , (nov*block_dim*sizeof(float) + (nov+1)*sizeof(int) + total*sizeof(int) + total*sizeof(T)) >>> (d_cptrs, d_rows, d_cvals, d_x, d_p, nov, total);
+  kernel_xshared_coalescing_mshared_sparse<<< grid_dim , block_dim , (nov*block_dim*sizeof(float) + (nov+1)*sizeof(int) + total*sizeof(int) + total*sizeof(T)) >>> (d_cptrs, d_rows, d_cvals, d_x, d_p, nov, total, start, end);
   cudaDeviceSynchronize();
   double enn = omp_get_wtime();
   cout << "kernel" << " in " << (enn - stt) << endl;
@@ -1931,6 +1906,124 @@ double gpu_perman64_xshared_coalescing_mshared_sparse(T* mat, int* cptrs, int* r
   }
 
   delete[] h_p;
+
+  return((4*(nov&1)-2) * p);
+}
+
+template <class T>
+double gpu_perman64_xshared_coalescing_mshared_multigpu_sparse(T* mat, int* cptrs, int* rows, T* cvals, int nov, int grid_dim, int block_dim) {
+  double x[nov]; 
+  double rs; //row sum
+  double p = 1; //product of the elements in vector 'x'
+  double p_partial[2];
+  p_partial[0] = 0;
+  p_partial[1] = 0;
+  int total = 0;
+  
+  //create the x vector and initiate the permanent
+  for (int j = 0; j < nov; j++) {
+    rs = .0f;
+    for (int k = 0; k < nov; k++) {
+      if (mat[(j * nov) + k] != 0) {
+        total++;
+        rs += mat[(j * nov) + k];  // sum of row j
+      }
+    }
+    x[j] = mat[(j * nov) + (nov-1)] - rs/2;  // see Nijenhuis and Wilf - x vector entry
+    p *= x[j];   // product of the elements in vector 'x'
+  }
+
+  long long start = 1;
+  long long end = (1LL << (nov-1));
+  long long mid = ((end - start) / 4) * 3;
+
+  #pragma omp parallel
+  {
+    #pragma omp single
+    {
+      #pragma omp task 
+      {
+        cudaSetDevice(1);
+        T *d_cvals;
+        int *d_cptrs, *d_rows;
+        double *d_x, *d_p;
+        double *h_p = new double[grid_dim * block_dim];
+
+        cudaMalloc( &d_x, (nov) * sizeof(double));
+        cudaMalloc( &d_p, (grid_dim * block_dim) * sizeof(double));
+        cudaMalloc( &d_cptrs, (nov + 1) * sizeof(int));
+        cudaMalloc( &d_rows, (total) * sizeof(int));
+        cudaMalloc( &d_cvals, (total) * sizeof(T));
+
+        cudaMemcpy( d_x, x, (nov) * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy( d_cptrs, cptrs, (nov + 1) * sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy( d_rows, rows, (total) * sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy( d_cvals, cvals, (total) * sizeof(T), cudaMemcpyHostToDevice);
+
+        double stt = omp_get_wtime();
+        kernel_xshared_coalescing_mshared_sparse<<< grid_dim , block_dim , (nov*block_dim*sizeof(float) + (nov+1)*sizeof(int) + total*sizeof(int) + total*sizeof(T)) >>> (d_cptrs, d_rows, d_cvals, d_x, d_p, nov, total, start, mid);
+        cudaDeviceSynchronize();
+        double enn = omp_get_wtime();
+        cout << "kernel1" << " in " << (enn - stt) << endl;
+        
+        cudaMemcpy( h_p, d_p, grid_dim * block_dim * sizeof(double), cudaMemcpyDeviceToHost);
+
+        cudaFree(d_x);
+        cudaFree(d_p);
+        cudaFree(d_cptrs);
+        cudaFree(d_rows);
+        cudaFree(d_cvals);
+
+        for (int i = 0; i < grid_dim * block_dim; i++) {
+          p_partial[0] += h_p[i];
+        }
+
+        delete[] h_p;
+      }
+      #pragma omp task 
+      {
+        cudaSetDevice(2);
+        T *d_cvals;
+        int *d_cptrs, *d_rows;
+        double *d_x, *d_p;
+        double *h_p = new double[grid_dim * block_dim];
+
+        cudaMalloc( &d_x, (nov) * sizeof(double));
+        cudaMalloc( &d_p, (grid_dim * block_dim) * sizeof(double));
+        cudaMalloc( &d_cptrs, (nov + 1) * sizeof(int));
+        cudaMalloc( &d_rows, (total) * sizeof(int));
+        cudaMalloc( &d_cvals, (total) * sizeof(T));
+
+        cudaMemcpy( d_x, x, (nov) * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy( d_cptrs, cptrs, (nov + 1) * sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy( d_rows, rows, (total) * sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy( d_cvals, cvals, (total) * sizeof(T), cudaMemcpyHostToDevice);
+
+        double stt = omp_get_wtime();
+        kernel_xshared_coalescing_mshared_sparse<<< grid_dim , block_dim , (nov*block_dim*sizeof(float) + (nov+1)*sizeof(int) + total*sizeof(int) + total*sizeof(T)) >>> (d_cptrs, d_rows, d_cvals, d_x, d_p, nov, total, mid, end);
+        cudaDeviceSynchronize();
+        double enn = omp_get_wtime();
+        cout << "kernel2" << " in " << (enn - stt) << endl;
+        
+        cudaMemcpy( h_p, d_p, grid_dim * block_dim * sizeof(double), cudaMemcpyDeviceToHost);
+
+        cudaFree(d_x);
+        cudaFree(d_p);
+        cudaFree(d_cptrs);
+        cudaFree(d_rows);
+        cudaFree(d_cvals);
+
+        for (int i = 0; i < grid_dim * block_dim; i++) {
+          p_partial[1] += h_p[i];
+        }
+
+        delete[] h_p;
+      }
+    }
+  }
+
+  p += p_partial[0];
+  p += p_partial[1];
 
   return((4*(nov&1)-2) * p);
 }

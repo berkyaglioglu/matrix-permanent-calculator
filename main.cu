@@ -42,6 +42,11 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
           perman = gpu_perman64_xshared_coalescing_mshared(mat, nov, grid_dim, block_dim);
           end = omp_get_wtime();
           cout << "Result: gpu_perman64_xshared_coalescing_mshared " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 5) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xshared_coalescing_mshared_multigpu(mat, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xshared_coalescing_mshared_multigpu " << perman << " in " << (end - start) << endl;
         } else {
           cout << "Unknown Algorithm ID" << endl;
         } 
@@ -82,6 +87,11 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
           perman = gpu_perman64_xshared_coalescing_mshared_sparse(mat, cptrs, rows, cvals, nov, grid_dim, block_dim);
           end = omp_get_wtime();
           cout << "Result: gpu_perman64_xshared_coalescing_mshared_sparse " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 5) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xshared_coalescing_mshared_multigpu_sparse(mat, cptrs, rows, cvals, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xshared_coalescing_mshared_multigpu_sparse " << perman << " in " << (end - start) << endl;
         } else {
           cout << "Unknown Algorithm ID" << endl;
         } 
