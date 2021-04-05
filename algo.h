@@ -651,7 +651,7 @@ double parallel_perman64(T* mat, int nov, int threads) {
 
 
 template <class T>
-unsigned long long int perman64(T* mat, int nov) {
+double perman64(T* mat, int nov) {
   double x[64];   
   double rs; //row sum
   double s;  //+1 or -1 
@@ -711,7 +711,7 @@ unsigned long long int perman64(T* mat, int nov) {
 
 
 template <class T>
-unsigned long long int brute_w(int *xadj, int *adj, T* val, int nov) {
+double brute_w(int *xadj, int *adj, T* val, int nov) {
   double perman = 0;
   double prod;
 
@@ -768,7 +768,7 @@ unsigned long long int brute_w(int *xadj, int *adj, T* val, int nov) {
 }
 
 template <class T>
-unsigned long long int sparse_perman64_w(int* xadj, int* adj, T* val, int nov) {
+double sparse_perman64_w(int* xadj, int* adj, T* val, int nov) {
   double x[64];   
   double rs; //row sum
   double s;  //+1 or -1
@@ -876,7 +876,7 @@ unsigned long long int sparse_perman64_w(int* xadj, int* adj, T* val, int nov) {
 }
 
 template <class T>
-unsigned long long int sparser_perman64_w(int* xadj, int* adj, T* val, int nov) {
+double sparser_perman64_w(int* xadj, int* adj, T* val, int nov) {
   double x[64];   
     
   double rs; //row sum
@@ -950,7 +950,7 @@ unsigned long long int sparser_perman64_w(int* xadj, int* adj, T* val, int nov) 
 }
 
 template <class T>
-unsigned long long int sparser_skip_perman64_w(int* xadj, int* adj, T* val, int nov) {
+double sparser_skip_perman64_w(int* xadj, int* adj, T* val, int nov) {
   double p = 0, prod, s, rs, x[64]; //row sum
   int j, k, ptr, column_id;
   unsigned long long int i = 0, tn11 = (1ULL << (nov-1)) - 1ULL, gray, start, period, ci, steps, change_j, change_all, one = 1;
@@ -1067,7 +1067,7 @@ unsigned long long int sparser_skip_perman64_w(int* xadj, int* adj, T* val, int 
 }
 
 template <class T>
-unsigned long long int parallel_skip_perman64_w(int* xadj, int* adj, T* val, int* mat, int nov) {
+double parallel_skip_perman64_w(int* xadj, int* adj, T* val, int* mat, int nov) {
   //first initialize the vector then we will copy it to ourselves
   double rs, x[64], p;
   int j, ptr, nt;
@@ -1207,7 +1207,7 @@ unsigned long long int parallel_skip_perman64_w(int* xadj, int* adj, T* val, int
 }
 
 template <class T>
-unsigned long long int parallel_skip_perman64_w_balanced(int* xadj, int* adj, T* val, int nov) {
+double parallel_skip_perman64_w_balanced(int* xadj, int* adj, T* val, int nov) {
   //first initialize the vector then we will copy it to ourselves
   double rs, x[64], p;
   int j, ptr, nt;
