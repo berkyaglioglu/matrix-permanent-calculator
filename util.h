@@ -428,6 +428,73 @@ void matrix2compressed(T* mat, int*& cptrs, int*& rows, T*& cvals, int*& rptrs, 
 	cptrs[nov] = curr_elt_c;
 }
 
+template <class T>
+void matrix2compressed_sortOrder(T* mat, int*& cptrs, int*& rows, T*& cvals, int*& rptrs, int*& cols, T*& rvals, int nov, int nnz) {
+	pair<int, int> arr[nov];
+	for (int j = 0; j < nov; j++) {
+		int curr_nnz = 0;
+		for(int i = 0; i < nov; i++) {
+			if (mat[i*nov + j] > 0) {
+				curr_nnz++;
+			}
+		}
+		arr[j] = pair<int,int>(j, curr_nnz);
+	}
+
+	qsort(arr, nov, sizeof(pair<int,int>),[](const void *left, const void *right) {
+		pair<int,int> left_pair = *static_cast<const pair<int,int>*>(left);
+		pair<int,int> right_pair = *static_cast<const pair<int,int>*>(right);
+		return int(left_pair.second > right_pair.second);
+	});
+
+	int curr_elt_r = 0;
+	int curr_elt_c = 0;
+	cptrs = new int[nov + 1];
+	rows = new int[nnz];
+	cvals = new T[nnz];
+	rptrs = new int[nov + 1];
+	cols = new int[nnz];
+	rvals = new T[nnz];
+
+	for (int i = 0; i < nov; i++) {
+		rptrs[i] = curr_elt_r;
+		int j;
+		for(int index = 0; index < nov; index++) {
+			j = arr[index].first;
+			if (mat[i*nov + j] > 0) {
+				cols[curr_elt_r] = index;
+				rvals[curr_elt_r] = mat[i*nov + j];
+				curr_elt_r++;        
+			}
+		}
+	}
+	rptrs[nov] = curr_elt_r;
+
+	for (int index = 0; index < nov; index++) {
+		int j = arr[index].first;
+		cptrs[index] = curr_elt_c;
+		for(int i = 0; i < nov; i++) {
+			if (mat[i*nov + j] > 0) {
+				rows[curr_elt_c] = i;
+				cvals[curr_elt_c] = mat[i*nov + j];
+				curr_elt_c++;
+			}
+		}
+	}
+	cptrs[nov] = curr_elt_c;
+
+	for (int i = 0; i < nov; i++) {
+		for(int j = 0; j < nov; j++) {
+			mat[i*nov+j]=0;
+		}
+	}
+	for (int j = 0; j < nov; j++) {
+		for(int t = cptrs[j]; t < cptrs[j+1]; t++) {
+			int i = rows[t];
+			mat[i*nov+j]=cvals[t];
+		}
+	}
+}
 
 bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int row, long col_extracted, double d_r[], double d_c[], int scale_times) {
 	

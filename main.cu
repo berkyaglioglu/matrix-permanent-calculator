@@ -173,6 +173,7 @@ int main (int argc, char **argv)
 { 
   bool generic = true;
   bool dense = true;
+  bool sortOrder = false;
   bool approximation = false;
   bool gpu = false;
   bool cpu = false;
@@ -187,7 +188,7 @@ int main (int argc, char **argv)
 
   int c;
 
-  while ((c = getopt (argc, argv, "bst:m:gd:cap:x:y:z:")) != -1)
+  while ((c = getopt (argc, argv, "bsrt:m:gd:cap:x:y:z:")) != -1)
     switch (c)
     {
       case 'b':
@@ -195,6 +196,9 @@ int main (int argc, char **argv)
         break;
       case 's':
         dense = false;
+        break;
+      case 'r':
+        sortOrder = true;
         break;
       case 't':
         if (optarg[0] == '-'){
@@ -303,7 +307,11 @@ int main (int argc, char **argv)
 
     int *cvals, *rvals;
     int *cptrs, *rows, *rptrs, *cols;
-    matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    if (sortOrder) {
+      matrix2compressed_sortOrder(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    } else {
+      matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    }
     
     for (int i = 0; i < nov; i++) {
       for(int j = 0; j < nov; j++) {
@@ -328,7 +336,11 @@ int main (int argc, char **argv)
 
     float *cvals, *rvals;
     int *cptrs, *rows, *rptrs, *cols;
-    matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    if (sortOrder) {
+      matrix2compressed_sortOrder(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    } else {
+      matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    }
     
     for (int i = 0; i < nov; i++) {
       for(int j = 0; j < nov; j++) {
@@ -357,7 +369,11 @@ int main (int argc, char **argv)
 
     double *cvals, *rvals;
     int *cptrs, *rows, *rptrs, *cols;
-    matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    if (sortOrder) {
+      matrix2compressed_sortOrder(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    } else {
+      matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+    }
     
     for (int i = 0; i < nov; i++) {
       for(int j = 0; j < nov; j++) {
