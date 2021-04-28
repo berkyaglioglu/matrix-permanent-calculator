@@ -496,6 +496,71 @@ void matrix2compressed_sortOrder(T* mat, int*& cptrs, int*& rows, T*& cvals, int
 	}
 }
 
+template <class T>
+void matrix2compressed_skipOrder(T* mat, int*& cptrs, int*& rows, T*& cvals, int*& rptrs, int*& cols, T*& rvals, int nov, int nnz) {
+	int rowPerm[nov];
+	int colPerm[nov];
+	bool rowVisited[nov];
+	int degs[nov];
+	for (int j = 0; j < nov; j++) {
+		degs[j] = 0;
+		rowVisited[j] = false;
+	}
+
+	for (int i = 0; i < nov; i++) {
+		for (int j = 0; j < nov; j++) {
+			if (mat[i*nov + j] != 0) {
+				degs[j]++;
+			}
+		}
+	}
+
+	int i = 0;
+	for (int j = 0; j < nov; j++) {
+		int curCol;
+		int temp = INT8_MAX;
+		for (int l = 0; l < nov; l++) {
+			if (degs[l] < temp) {
+				temp = degs[l];
+				curCol = l;
+			}
+		}
+		degs[curCol] = INT8_MAX;
+		colPerm[j] = curCol;
+		for (int l = 0; l < nov; l++) {
+			if (mat[l*nov + curCol] != 0) {
+				if (!rowVisited[l]) {
+					rowVisited[l] = true;
+					rowPerm[i] = l;
+					i++;
+					for (int k = 0; k < nov; k++) {
+						if (mat[l*nov + k] != 0) {
+							if (degs[k] != INT8_MAX) {
+								degs[k]--;
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	T* matPrev = new T[nov*nov];
+	for (int r = 0; r < nov; r++) {
+		for(int c = 0; c < nov; c++) {
+			matPrev[r*nov + c] = mat[r*nov + c];
+		}
+	}
+	for (int r = 0; r < nov; r++) {
+		for(int c = 0; c < nov; c++) {
+			mat[r*nov + c] = matPrev[rowPerm[r]*nov + colPerm[c]];
+		}
+	}
+	delete[] matPrev;
+
+	matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
+}
+
 bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int row, long col_extracted, double d_r[], double d_c[], int scale_times) {
 	
 	for (int k = 0; k < scale_times; k++) {
