@@ -238,6 +238,7 @@ double rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, i
   return (sum_perm / number_of_times);
 }
 
+
 template <class T>
 double rasmussen(T* mat, int nov, int number_of_times, int threads) {
   T* mat_t = new T[nov * nov];
@@ -257,7 +258,11 @@ double rasmussen(T* mat, int nov, int number_of_times, int threads) {
     for (int time = 0; time < number_of_times; time++) {
       int row_nnz[nov];
       long col_extracted = 0;
+      long row_extracted = 0;
       
+      int row;
+      int min=nov+1;
+
       for (int i = 0; i < nov; i++) {
         row_nnz[i] = 0;
         for (int j = 0; j < nov; j++) {
@@ -265,11 +270,15 @@ double rasmussen(T* mat, int nov, int number_of_times, int threads) {
             row_nnz[i] += 1;
           }
         }
+        if (min > row_nnz[i]) {
+          min = row_nnz[i];
+          row = i;
+        }
       }
       
       double perm = 1;
       
-      for (int row = 0; row < nov; row++) {
+      for (int i = 0; i < nov; i++) {
         // multiply permanent with number of nonzeros in the current row
         perm *= row_nnz[row];
 
@@ -289,15 +298,23 @@ double rasmussen(T* mat, int nov, int number_of_times, int threads) {
 
         // exract the column
         col_extracted |= (1L << col);
+        row_extracted |= (1L << row);
 
+        min = nov+1;
         // update number of nonzeros of the rows after extracting the column
         bool zero_row = false;
-        for (int r = row + 1; r < nov; r++) {
-          if (mat_t[col * nov + r] != 0) {
-            row_nnz[r]--;
-            if (row_nnz[r] == 0) {
-              zero_row = true;
-              break;
+        for (int r = 0; r < nov; r++) {
+          if (!((row_extracted >> r) & 1L)) {
+            if (mat_t[col * nov + r] != 0) {
+              row_nnz[r]--;
+              if (row_nnz[r] == 0) {
+                zero_row = true;
+                break;
+              }
+            }
+            if (min > row_nnz[r]) {
+              min = row_nnz[r];
+              row = r;
             }
           }
         }
@@ -655,7 +672,7 @@ double parallel_perman64(T* mat, int nov, int threads) {
 template <class T>
 double parallel_skip_perman64_w(int *rptrs, int *cols, T *rvals, int *cptrs, int *rows, T *cvals, int nov, int threads) {
   //first initialize the vector then we will copy it to ourselves
-  double rs, x[nov], p;
+  double rs, x[64], p;
   int j, ptr;
   unsigned long long ci, start, end, chunk_size, change_j;
 
@@ -684,7 +701,7 @@ double parallel_skip_perman64_w(int *rptrs, int *cols, T *rvals, int *cptrs, int
     if(x[j] == 0) {
       change_j = -1;
       for (ptr = rptrs[j]; ptr < rptrs[j + 1]; ptr++) {
-        ci = 1ULL << (cols[ptr] - nov); 
+        ci = 1ULL << cols[ptr]; 
         if(ci < change_j) {
           change_j = ci;
         }
@@ -701,8 +718,8 @@ double parallel_skip_perman64_w(int *rptrs, int *cols, T *rvals, int *cptrs, int
 
   #pragma omp parallel num_threads(threads) private(j, ci, change_j) 
   {
-    double my_x[nov];
-    memcpy(my_x, x, sizeof(double) * nov);
+    double my_x[64];
+    memcpy(my_x, x, sizeof(double) * 64);
     
     int tid = omp_get_thread_num();
     unsigned long long my_start = start + tid * chunk_size;
@@ -714,13 +731,13 @@ double parallel_skip_perman64_w(int *rptrs, int *cols, T *rvals, int *cptrs, int
     unsigned long long my_gray;    
     unsigned long long my_prev_gray = 0;
 
-    int k, ptr, last_zero;
+    int ptr, last_zero;
     unsigned long long period, steps, step_start;
 
     unsigned long long i = my_start;
 
     while (i < my_end) {
-      k = __builtin_ctzll(i + 1);
+      //k = __builtin_ctzll(i + 1);
       my_gray = i ^ (i >> 1);
 
       unsigned long long gray_diff = my_prev_gray ^ my_gray;
@@ -762,7 +779,7 @@ double parallel_skip_perman64_w(int *rptrs, int *cols, T *rvals, int *cptrs, int
       else {
         change_j = -1;
         for (ptr = rptrs[last_zero]; ptr < rptrs[last_zero + 1]; ptr++) {
-          step_start = 1ULL << (cols[ptr] - nov); 
+          step_start = 1ULL << cols[ptr]; 
           period = step_start << 1; 
           ci = step_start;
           if(i >= step_start) {
@@ -792,7 +809,7 @@ template <class T>
 double parallel_skip_perman64_w_balanced(int *rptrs, int *cols, T *rvals, int *cptrs, int *rows, T *cvals, int nov, int threads) {
   //first initialize the vector then we will copy it to ourselves
   double rs, x[nov], p;
-  int j, ptr, nt;
+  int j, ptr;
   unsigned long long ci, start, end, chunk_size, change_j;
 
   //initialize the vector entries                                                                                        
@@ -820,7 +837,7 @@ double parallel_skip_perman64_w_balanced(int *rptrs, int *cols, T *rvals, int *c
     if(x[j] == 0) {
       change_j = -1;
       for (ptr = rptrs[j]; ptr < rptrs[j + 1]; ptr++) {
-        ci = 1ULL << (cols[ptr] - nov); 
+        ci = 1ULL << cols[ptr]; 
         if(ci < change_j) {
           change_j = ci;
         }
@@ -853,14 +870,13 @@ double parallel_skip_perman64_w_balanced(int *rptrs, int *cols, T *rvals, int *c
         unsigned long long my_prev_gray = 0;
         memcpy(my_x, x, sizeof(double) * nov);
 
-        double s;
-        int k, ptr, last_zero;
+        int ptr, last_zero;
         unsigned long long period, steps, step_start;
         
         unsigned long long i = my_start;
         
         while (i < my_end) {
-          k = __builtin_ctzll(i + 1);
+          //k = __builtin_ctzll(i + 1);
           my_gray = i ^ (i >> 1);
           
           unsigned long long gray_diff = my_prev_gray ^ my_gray;
@@ -902,7 +918,7 @@ double parallel_skip_perman64_w_balanced(int *rptrs, int *cols, T *rvals, int *c
           else {
             change_j = -1;
             for (ptr = rptrs[last_zero]; ptr < rptrs[last_zero + 1]; ptr++) {
-              step_start = 1ULL << (cols[ptr] - nov); 
+              step_start = 1ULL << cols[ptr]; 
               period = step_start << 1; 
               ci = step_start;
               if(i >= step_start) {

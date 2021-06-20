@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <math.h>
+#include <vector>
 using namespace std;
 
 #define etype int
@@ -396,6 +397,125 @@ void matrix2graph(T* mat, int nov, int*& xadj, int*& adj, T*& val) {
 	xadj[2 * nov] = nnz;
 }
 
+int gridGraph2compressed(int m, int n, int*& cptrs, int*& rows, int*& rptrs, int*& cols) {
+	if (m % 2 == 1 && n % 2 == 1) {
+		cout << "one of the grid dimensions should be positive.";
+		return -1;
+	}
+	vector<pair<int,int>> edges1;
+	vector<pair<int,int>> edges2;
+	int row;
+	int col;
+	if (m % 2 == 0) {
+		row = n;
+		col = m;
+	} else if (n % 2 == 0) {
+		row = m;
+		col = n;
+	}
+
+	int nov = m*n/2;
+
+	for (int i = 0; i < row; i++) {
+		for (int j = 0; j < col; j++) {
+			if ((i%2==0 && j%2==0) || (i%2==1 && j%2==1)) {
+				int x;
+				x = i*(col/2) + j/2;
+				if (x-col/2 >= 0) {
+					edges1.push_back(pair<int,int>(x,x-col/2));
+				}
+				if (x+col/2 < nov) {
+					edges1.push_back(pair<int,int>(x,x+col/2));
+				}
+				if (j % 2 == 0) {
+					if (j == 0) {
+						edges1.push_back(pair<int,int>(x,x));
+					} else {
+						edges1.push_back(pair<int,int>(x,x-1));
+						edges1.push_back(pair<int,int>(x,x));
+					}
+				} else {
+					if (j == col-1) {
+						edges1.push_back(pair<int,int>(x,x));
+					} else {
+						edges1.push_back(pair<int,int>(x,x));
+						edges1.push_back(pair<int,int>(x,x+1));
+					}
+				}
+			}
+			if ((i%2==1 && j%2==0) || (i%2==0 && j%2==1)) {
+				int x;
+				x = i*(col/2) + j/2;
+				if (x-col/2 >= 0) {
+					edges2.push_back(pair<int,int>(x,x-col/2));
+				}
+				if (x+col/2 < nov) {
+					edges2.push_back(pair<int,int>(x,x+col/2));
+				}
+				if (j % 2 == 0) {
+					if (j == 0) {
+						edges2.push_back(pair<int,int>(x,x));
+					} else {
+						edges2.push_back(pair<int,int>(x,x-1));
+						edges2.push_back(pair<int,int>(x,x));
+					}
+				} else {
+					if (j == col-1) {
+						edges2.push_back(pair<int,int>(x,x));
+					} else {
+						edges2.push_back(pair<int,int>(x,x));
+						edges2.push_back(pair<int,int>(x,x+1));
+					}
+				}
+			}
+		}
+	}
+
+	int *mat = new int[nov*nov];
+	for (int i = 0; i < nov*nov; i++) {
+		mat[i] = 0;
+	}
+	for (int i = 0; i < edges1.size(); i++) {
+		mat[edges1[i].first * nov + edges1[i].second] = 1;
+	}
+	for (int i = 0; i < edges2.size(); i++) {
+		mat[edges2[i].second * nov + edges2[i].first] = 1;
+	}
+
+	int nnz = 0;
+	for(int i = 0; i < nov * nov; i++) {
+		if(mat[i] > 0) {
+			nnz++;
+		}
+	}
+
+	int curr_elt_r = 0;
+	int curr_elt_c = 0;
+	cptrs = new int[nov + 1];
+	rows = new int[nnz];
+	rptrs = new int[nov + 1];
+	cols = new int[nnz];
+
+	for (int i = 0; i < nov; i++) {
+		rptrs[i] = curr_elt_r;
+		cptrs[i] = curr_elt_c;
+		for(int j = 0; j < nov; j++) {
+			if (mat[i*nov + j] > 0) {
+				cols[curr_elt_r] = j;
+				curr_elt_r++;        
+			}
+			if (mat[j*nov + i] > 0) {
+				rows[curr_elt_c] = j;
+				curr_elt_c++;
+			}
+		}
+	}
+	rptrs[nov] = curr_elt_r;
+	cptrs[nov] = curr_elt_c;
+
+	delete[] mat;
+	return nnz;
+}
 
 template <class T>
 void matrix2compressed(T* mat, int*& cptrs, int*& rows, T*& cvals, int*& rptrs, int*& cols, T*& rvals, int nov, int nnz) {

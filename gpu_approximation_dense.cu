@@ -328,74 +328,6 @@ __global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, 
   p[tid] = perm;
 }
 
-template <class T>
-__global__ void kernel_approximation_shared_scale_vectors(T* mat, double* p, float* d_r, float* d_c, int nov, int scale_intervals, int scale_times, int rand) {
-  int tid = threadIdx.x + (blockIdx.x * blockDim.x);
-  int thread_id = threadIdx.x;
-  int block_dim = blockDim.x;
-
-  extern __shared__ float shared_mem[]; 
-  T *shared_mat = (T*) shared_mem; // size = nov * nov
-  float *shared_r = (float*) &shared_mat[nov * nov]; // size = nov
-  float *shared_c = (float*) &shared_r[nov]; // size = nov
-
-  for (int k = 0; k < ((nov*nov)/block_dim + 1); k++) {
-    if ((block_dim * k + thread_id) < (nov * nov)) {
-      shared_mat[block_dim * k + thread_id] = mat[block_dim * k + thread_id];
-    }
-    if ((block_dim * k + thread_id) < nov) {
-      shared_r[block_dim * k + thread_id] = d_r[block_dim * k + thread_id];
-      shared_c[block_dim * k + thread_id] = d_c[block_dim * k + thread_id];
-    }
-  }
-
-  __syncthreads();
-
-  curandState_t state;
-  curand_init(rand*tid,0,0,&state);
-
-  long col_extracted = 0;
-  
-  double perm = 1;
-  
-  for (int row = 0; row < nov; row++) {
-    // use scaled matrix for pj
-    double sum_row_of_S = 0;
-    for (int j = 0; j < nov; j++) {
-      if (!((col_extracted >> j) & 1L) && shared_mat[(row * nov) + j] != 0) {
-        sum_row_of_S += shared_r[row] * shared_c[j];
-      }
-    }
-    if (sum_row_of_S == 0) {
-      perm = 0;
-      break;
-    }
-
-    double random = curand_uniform(&state) * sum_row_of_S;
-    double temp = 0;
-    double s, pj;
-    int col;
-    for (int j = 0; j < nov; j++) {
-      if (!((col_extracted >> j) & 1L) && shared_mat[(row * nov) + j] != 0) {
-        s = shared_r[row] * shared_c[j];
-        temp += s;
-        if (random <= temp) {
-          col = j;
-          pj = s / sum_row_of_S;
-          break;
-        }
-      }
-    }
-
-    // update perm
-    perm /= pj;
-
-    // exract the column
-    col_extracted |= (1L << col);
-  }
-
-  p[tid] = perm;
-}
 
 
 template <class T>
@@ -559,7 +491,6 @@ double gpu_perman64_approximation(T* mat, int nov, int number_of_times, int scal
 
   cudaSetDevice(1);
 
-  float *h_r, *h_c;
   double *h_p = new double[grid_size * block_size];
 
   T *d_mat;
@@ -573,53 +504,14 @@ double gpu_perman64_approximation(T* mat, int nov, int number_of_times, int scal
 
   srand(time(0));
 
-  if (scale_intervals == -1) {
-    h_r = new float[nov];
-    h_c = new float[nov];
-    for (int i = 0; i < nov; i++) {
-      h_r[i] = 1;
-      h_c[i] = 1;
-    }
-    cudaMalloc( &d_r, (nov) * sizeof(float));
-    cudaMalloc( &d_c, (nov) * sizeof(float));
+  cudaMalloc( &d_r, (nov * grid_size * block_size) * sizeof(float));
+  cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
 
-    #pragma omp parallel for num_threads(omp_get_max_threads())
-      for (int k = 0; k < scale_times; k++) {
-        for (int j = 0; j < nov; j++) {
-          float col_sum = 0;
-          for (int i = 0; i < nov; i++) {
-            col_sum += h_r[i] * mat[i*nov + j];
-          }
-          h_c[j] = 1 / col_sum;
-        }
-        for (int i = 0; i < nov; i++) {
-          float row_sum = 0;
-          for (int j = 0; j < nov; j++) {
-            row_sum += mat[i*nov + j] * h_c[j];
-          }
-          h_r[i] = 1 / row_sum;
-        }
-      }
-
-    cudaMemcpy( d_r, h_r, (nov) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy( d_c, h_c, (nov) * sizeof(float), cudaMemcpyHostToDevice);
-
-    double stt = omp_get_wtime();
-    kernel_approximation_shared_scale_vectors<<< grid_size , block_size , (nov*nov*sizeof(T) + 2*nov*sizeof(float)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times, rand());
-    cudaDeviceSynchronize();
-    double enn = omp_get_wtime();
-    cout << "kernel" << " in " << (enn - stt) << endl;
-
-  } else {
-    cudaMalloc( &d_r, (nov * grid_size * block_size) * sizeof(float));
-    cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
-
-    double stt = omp_get_wtime();
-    kernel_approximation<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times, rand());
-    cudaDeviceSynchronize();
-    double enn = omp_get_wtime();
-    cout << "kernel" << " in " << (enn - stt) << endl;
-  }
+  double stt = omp_get_wtime();
+  kernel_approximation<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times, rand());
+  cudaDeviceSynchronize();
+  double enn = omp_get_wtime();
+  cout << "kernel" << " in " << (enn - stt) << endl;
   
   cudaMemcpy( h_p, d_p, grid_size * block_size * sizeof(double), cudaMemcpyDeviceToHost);
 
@@ -629,16 +521,11 @@ double gpu_perman64_approximation(T* mat, int nov, int number_of_times, int scal
   cudaFree(d_c);
 
   double p = 0;
-  #pragma omp parallel for num_threads(omp_get_max_threads()) reduction(+:p)
-    for (int i = 0; i < grid_size * block_size; i++) {
-      p += h_p[i];
-    }
+  for (int i = 0; i < grid_size * block_size; i++) {
+    p += h_p[i];
+  }
 
   delete[] h_p;
-  if (scale_intervals == -1) {
-    delete[] h_r;
-    delete[] h_c;
-  }
 
   return (p / (grid_size * block_size));
 }
@@ -723,56 +610,15 @@ double gpu_perman64_approximation_multigpucpu_chunks(T* mat, int nov, int number
 
         cudaMemcpy( d_mat, mat, (nov * nov) * sizeof(T), cudaMemcpyHostToDevice);
 
-        if (scale_intervals == -1) {
-          h_r = new float[nov];
-          h_c = new float[nov];
-          for (int i = 0; i < nov; i++) {
-            h_r[i] = 1;
-            h_c[i] = 1;
-          }
-          cudaMalloc( &d_r, (nov) * sizeof(float));
-          cudaMalloc( &d_c, (nov) * sizeof(float));
-
-          for (int k = 0; k < scale_times; k++) {
-            for (int j = 0; j < nov; j++) {
-              float col_sum = 0;
-              for (int i = 0; i < nov; i++) {
-                col_sum += h_r[i] * mat[i*nov + j];
-              }
-              h_c[j] = 1 / col_sum;
-            }
-            for (int i = 0; i < nov; i++) {
-              float row_sum = 0;
-              for (int j = 0; j < nov; j++) {
-                row_sum += mat[i*nov + j] * h_c[j];
-              }
-              h_r[i] = 1 / row_sum;
-            }
-          }
-          cudaMemcpy( d_r, h_r, (nov) * sizeof(float), cudaMemcpyHostToDevice);
-          cudaMemcpy( d_c, h_c, (nov) * sizeof(float), cudaMemcpyHostToDevice);
-          delete[] h_r;
-          delete[] h_c;
-        } else {
-          cudaMalloc( &d_r, (nov * grid_size * block_size) * sizeof(float));
-          cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
-        }
+        cudaMalloc( &d_r, (nov * grid_size * block_size) * sizeof(float));
+        cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
 
         while (check) {
-          if (scale_intervals == -1) {
-            double stt = omp_get_wtime();
-            kernel_approximation_shared_scale_vectors<<< grid_size , block_size , (nov*nov*sizeof(T) + 2*nov*sizeof(float)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times, rand());
-            cudaDeviceSynchronize();
-            double enn = omp_get_wtime();
-            cout << "kernel" << id << " in " << (enn - stt) << endl;
-
-          } else {
-            double stt = omp_get_wtime();
-            kernel_approximation<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times, rand());
-            cudaDeviceSynchronize();
-            double enn = omp_get_wtime();
-            cout << "kernel" << id << " in " << (enn - stt) << endl;
-          }
+          double stt = omp_get_wtime();
+          kernel_approximation<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, d_r, d_c, nov, scale_intervals, scale_times, rand());
+          cudaDeviceSynchronize();
+          double enn = omp_get_wtime();
+          cout << "kernel" << id << " in " << (enn - stt) << endl;
 
           cudaMemcpy( h_p, d_p, grid_size * block_size * sizeof(double), cudaMemcpyDeviceToHost);
 

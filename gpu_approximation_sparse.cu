@@ -360,18 +360,14 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
   p[tid] = perm;
 }
 
-__global__ void kernel_approximation_shared_scale_vectors_sparse(int* rptrs, int* cols, int* cptrs, int* rows, double* p, float* d_r, float* d_c, int nov, int nnz, int scale_intervals, int scale_times, int rand) {
+__global__ void kernel_approximation_grid_graph_sparse(int* rptrs, int* cols, double* p, float* d_r, float* d_c, int nov, int nnz, int scale_intervals, int scale_times, int rand) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
   int thread_id = threadIdx.x;
   int block_dim = blockDim.x;
 
   extern __shared__ float shared_mem[]; 
-  int *shared_rptrs = (int*) shared_mem; // size = nov + 1
-  int *shared_cols = (int*) &shared_rptrs[nov + 1]; // size = nnz
-  int *shared_cptrs = (int*) &shared_cols[nnz]; // size = nov + 1
-  int *shared_rows = (int*) &shared_cptrs[nov + 1]; // size = nnz
-  float *shared_r = (float*) &shared_rows[nnz]; // size = nov
-  float *shared_c = (float*) &shared_r[nov]; // size = nov
+  int *shared_ptrs = (int*) shared_mem; // size = nov + 1
+  int *shared_colsrows = (int*) &shared_ptrs[nov + 1]; // size = nnz
 
   int max;
   if (nnz > nov) {
@@ -382,16 +378,10 @@ __global__ void kernel_approximation_shared_scale_vectors_sparse(int* rptrs, int
 
   for (int k = 0; k < (max / block_dim + 1); k++) {
     if ((block_dim * k + thread_id) < nnz) {
-      shared_cols[block_dim * k + thread_id] = cols[block_dim * k + thread_id];
-      shared_rows[block_dim * k + thread_id] = rows[block_dim * k + thread_id];
+      shared_colsrows[block_dim * k + thread_id] = cols[block_dim * k + thread_id];
     }
     if ((block_dim * k + thread_id) < (nov + 1)) {
-      shared_rptrs[block_dim * k + thread_id] = rptrs[block_dim * k + thread_id];
-      shared_cptrs[block_dim * k + thread_id] = cptrs[block_dim * k + thread_id];
-      if ((block_dim * k + thread_id) != nov) {
-        shared_r[block_dim * k + thread_id] = d_r[block_dim * k + thread_id];
-        shared_c[block_dim * k + thread_id] = d_c[block_dim * k + thread_id];
-      }
+      shared_ptrs[block_dim * k + thread_id] = rptrs[block_dim * k + thread_id];
     }
   }
 
@@ -401,16 +391,72 @@ __global__ void kernel_approximation_shared_scale_vectors_sparse(int* rptrs, int
   curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
+  bool is_break;
+  for (int i = 0; i < nov; i++) {
+    d_r[tid*nov + i] = 1;
+    d_c[tid*nov + i] = 1;
+  }
   
   double perm = 1;
   
   for (int row = 0; row < nov; row++) {
+    // Scale part
+    if (row % scale_intervals == 0) {
+
+      for (int k = 0; k < scale_times; k++) {
+
+        for (int j = 0; j < nov; j++) {
+          if (!((col_extracted >> j) & 1L)) {
+            double col_sum = 0;
+            int r;
+            for (int i = shared_ptrs[j]; i < shared_ptrs[j+1]; i++) {
+              r = shared_colsrows[i];
+              col_sum += d_r[tid*nov + r];
+            }
+            if (col_sum == 0) {
+              is_break = true;
+              break;
+            }
+            d_c[tid*nov + j] = 1 / col_sum;
+          }
+        }
+        if (is_break) {
+          break;
+        }
+
+        for (int i = row; i < nov; i++) {
+          double row_sum = 0;
+          int c;
+          for (int j = shared_ptrs[i]; j < shared_ptrs[i+1]; j++) {
+            c = shared_colsrows[j];
+            if (!((col_extracted >> c) & 1L)) {
+              row_sum += d_c[tid*nov + c];
+            }
+          }
+          if (row_sum == 0) {
+            is_break = true;
+            break;
+          }
+          d_r[tid*nov + i] = 1 / row_sum;
+        }
+        if (is_break) {
+          break;
+        }
+      }
+
+    }
+
+    if (is_break) {
+      perm = 0;
+      break;
+    }
+
     // use scaled matrix for pj
     double sum_row_of_S = 0;
-    for (int i = shared_rptrs[row]; i < shared_rptrs[row+1]; i++) {
-      int c = shared_cols[i];
+    for (int i = shared_ptrs[row]; i < shared_ptrs[row+1]; i++) {
+      int c = shared_colsrows[i];
       if (!((col_extracted >> c) & 1L)) {
-        sum_row_of_S += shared_r[row] * shared_c[c];
+        sum_row_of_S += d_r[tid*nov + row] * d_c[tid*nov + c];
       }
     }
     if (sum_row_of_S == 0) {
@@ -422,10 +468,10 @@ __global__ void kernel_approximation_shared_scale_vectors_sparse(int* rptrs, int
     double temp = 0;
     double s, pj;
     int col;
-    for (int i = shared_rptrs[row]; i < shared_rptrs[row+1]; i++) {
-      int c = shared_cols[i];
+    for (int i = shared_ptrs[row]; i < shared_ptrs[row+1]; i++) {
+      int c = shared_colsrows[i];
       if (!((col_extracted >> c) & 1L)) {
-        s = shared_r[row] * shared_c[c];
+        s = d_r[tid*nov + row] * d_c[tid*nov + c];
         temp += s;
         if (random <= temp) {
           col = c;
@@ -446,7 +492,7 @@ __global__ void kernel_approximation_shared_scale_vectors_sparse(int* rptrs, int
 }
 
 
-double gpu_perman64_rasmussen_sparse(int *rptrs, int *cols, int nov, int nnz, int number_of_times) {
+double gpu_perman64_rasmussen_sparse(int *rptrs, int *cols, int nov, int nnz, int number_of_times, bool grid_graph) {
   int block_size = 1024;
   int grid_size = number_of_times / block_size + 1;
 
@@ -488,9 +534,10 @@ double gpu_perman64_rasmussen_sparse(int *rptrs, int *cols, int nov, int nnz, in
   return (p / (grid_size * block_size));
 }
 
-double gpu_perman64_rasmussen_multigpucpu_chunks_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int nnz, int number_of_times, int gpu_num, bool cpu, int threads) {
+double gpu_perman64_rasmussen_multigpucpu_chunks_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int nnz, int number_of_times, int gpu_num, bool cpu, int threads, bool grid_graph) {
   int block_size = 1024;
   int grid_size = 1024;
+
   int cpu_chunk = 50000;
   int num_of_times_so_far = 0;
 
@@ -559,7 +606,7 @@ double gpu_perman64_rasmussen_multigpucpu_chunks_sparse(int *cptrs, int *rows, i
 
         while (check) {
           double stt = omp_get_wtime();
-          kernel_rasmussen<<< grid_size , block_size , (nov*nov*sizeof(T)) >>> (d_mat, d_p, nov, rand());
+          kernel_rasmussen_sparse<<< grid_size , block_size , ((nnz + nov + 1)*sizeof(int)) >>> (d_rptrs, d_cols, d_p, nov, nnz, rand());
           cudaDeviceSynchronize();
           double enn = omp_get_wtime();
           cout << "kernel" << id << " in " << (enn - stt) << endl;
@@ -598,13 +645,12 @@ double gpu_perman64_rasmussen_multigpucpu_chunks_sparse(int *cptrs, int *rows, i
   return p / times;
 }
 
-double gpu_perman64_approximation_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int nnz, int number_of_times, int scale_intervals, int scale_times) {
+double gpu_perman64_approximation_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int nnz, int number_of_times, int scale_intervals, int scale_times, bool grid_graph) {
   int block_size = 1024;
   int grid_size = number_of_times / block_size + 1;
 
   cudaSetDevice(1);
 
-  float *h_r, *h_c;
   double *h_p = new double[grid_size * block_size];
 
   int *d_rptrs, *d_cols, *d_cptrs, *d_rows;
@@ -613,68 +659,26 @@ double gpu_perman64_approximation_sparse(int *cptrs, int *rows, int *rptrs, int 
 
   cudaMalloc( &d_rptrs, (nov + 1) * sizeof(int));
   cudaMalloc( &d_cols, (nnz) * sizeof(int));
-  cudaMalloc( &d_cptrs, (nov + 1) * sizeof(int));
-  cudaMalloc( &d_rows, (nnz) * sizeof(int));
   cudaMalloc( &d_p, (grid_size * block_size) * sizeof(double));
 
   cudaMemcpy( d_rptrs, rptrs, (nov + 1) * sizeof(int), cudaMemcpyHostToDevice);
   cudaMemcpy( d_cols, cols, (nnz) * sizeof(int), cudaMemcpyHostToDevice);
+
+  cudaMalloc( &d_cptrs, (nov + 1) * sizeof(int));
+  cudaMalloc( &d_rows, (nnz) * sizeof(int));
   cudaMemcpy( d_cptrs, cptrs, (nov + 1) * sizeof(int), cudaMemcpyHostToDevice);
   cudaMemcpy( d_rows, rows, (nnz) * sizeof(int), cudaMemcpyHostToDevice);
-
+  
   srand(time(0));
 
-  if (scale_intervals == -1) {
-    h_r = new float[nov];
-    h_c = new float[nov];
-    for (int i = 0; i < nov; i++) {
-      h_r[i] = 1;
-      h_c[i] = 1;
-    }
-    cudaMalloc( &d_r, (nov) * sizeof(float));
-    cudaMalloc( &d_c, (nov) * sizeof(float));
+  cudaMalloc( &d_r, (nov * grid_size * block_size) * sizeof(float));
+  cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
 
-    #pragma omp parallel for num_threads(omp_get_max_threads())
-      for (int k = 0; k < scale_times; k++) {
-        for (int j = 0; j < nov; j++) {
-          float col_sum = 0;
-          int r;
-          for (int i = cptrs[j]; i < cptrs[j+1]; i++) {
-            r = rows[i];
-            col_sum += h_r[r];
-          }
-          h_c[j] = 1 / col_sum;
-        }
-        for (int i = 0; i < nov; i++) {
-          float row_sum = 0;
-          int c;
-          for (int j = rptrs[i]; j < rptrs[i+1]; j++) {
-            c = cols[j];
-            row_sum += h_c[c];
-          }
-          h_r[i] = 1 / row_sum;
-        }
-      }
-
-    cudaMemcpy( d_r, h_r, (nov) * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy( d_c, h_c, (nov) * sizeof(float), cudaMemcpyHostToDevice);
-
-    double stt = omp_get_wtime();
-    kernel_approximation_shared_scale_vectors_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int) + 2*nov*sizeof(float)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times, rand());
-    cudaDeviceSynchronize();
-    double enn = omp_get_wtime();
-    cout << "kernel" << " in " << (enn - stt) << endl;
-
-  } else {
-    cudaMalloc( &d_r, (nov * grid_size * block_size) * sizeof(float));
-    cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
-
-    double stt = omp_get_wtime();
-    kernel_approximation_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times, rand());
-    cudaDeviceSynchronize();
-    double enn = omp_get_wtime();
-    cout << "kernel" << " in " << (enn - stt) << endl;
-  }
+  double stt = omp_get_wtime();
+  kernel_approximation_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times, rand());
+  cudaDeviceSynchronize();
+  double enn = omp_get_wtime();
+  cout << "kernel" << " in " << (enn - stt) << endl;
   
   cudaMemcpy( h_p, d_p, grid_size * block_size * sizeof(double), cudaMemcpyDeviceToHost);
 
@@ -687,23 +691,19 @@ double gpu_perman64_approximation_sparse(int *cptrs, int *rows, int *rptrs, int 
   cudaFree(d_p);
 
   double p = 0;
-  #pragma omp parallel for num_threads(omp_get_max_threads()) reduction(+:p)
-    for (int i = 0; i < grid_size * block_size; i++) {
-      p += h_p[i];
-    }
+  for (int i = 0; i < grid_size * block_size; i++) {
+    p += h_p[i];
+  }
 
   delete[] h_p;
-  if (scale_intervals == -1) {
-    delete[] h_r;
-    delete[] h_c;
-  }
 
   return (p / (grid_size * block_size));
 }
 
-double gpu_perman64_approximation_multigpucpu_chunks_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int nnz, int number_of_times, int gpu_num, bool cpu, int scale_intervals, int scale_times, int threads) {
+double gpu_perman64_approximation_multigpucpu_chunks_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int nnz, int number_of_times, int gpu_num, bool cpu, int scale_intervals, int scale_times, int threads, bool grid_graph) {
   int block_size = 1024;
   int grid_size = 1024;
+
   int cpu_chunk = 50000;
   int num_of_times_so_far = 0;
 
@@ -734,7 +734,7 @@ double gpu_perman64_approximation_multigpucpu_chunks_sparse(int *cptrs, int *row
           }
           while (check) {
             double stt = omp_get_wtime();
-            cpu_approximation_perman64_sparse(cptrs, rows, rptrs, cols, nov, rand(), number_of_times, scale_intervals, scale_times, threads)
+            cpu_approximation_perman64_sparse(cptrs, rows, rptrs, cols, nov, rand(), number_of_times, scale_intervals, scale_times, threads);
             double enn = omp_get_wtime();
             p_partial_times[id] += cpu_chunk;
             cout << "cpu" << " in " << (enn - stt) << endl;
@@ -770,64 +770,24 @@ double gpu_perman64_approximation_multigpucpu_chunks_sparse(int *cptrs, int *row
         cudaMalloc( &d_p, (grid_size * block_size) * sizeof(double));
         cudaMalloc( &d_rptrs, (nov + 1) * sizeof(int));
         cudaMalloc( &d_cols, (nnz) * sizeof(int));
-        cudaMalloc( &d_cptrs, (nov + 1) * sizeof(int));
-        cudaMalloc( &d_rows, (nnz) * sizeof(int));
 
         cudaMemcpy( d_rptrs, rptrs, (nov + 1) * sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy( d_cols, cols, (nnz) * sizeof(int), cudaMemcpyHostToDevice);
+
+        cudaMalloc( &d_cptrs, (nov + 1) * sizeof(int));
+        cudaMalloc( &d_rows, (nnz) * sizeof(int));
         cudaMemcpy( d_cptrs, cptrs, (nov + 1) * sizeof(int), cudaMemcpyHostToDevice);
         cudaMemcpy( d_rows, rows, (nnz) * sizeof(int), cudaMemcpyHostToDevice);
 
-        if (scale_intervals == -1) {
-          h_r = new float[nov];
-          h_c = new float[nov];
-          for (int i = 0; i < nov; i++) {
-            h_r[i] = 1;
-            h_c[i] = 1;
-          }
-          cudaMalloc( &d_r, (nov) * sizeof(float));
-          cudaMalloc( &d_c, (nov) * sizeof(float));
-
-          for (int k = 0; k < scale_times; k++) {
-            for (int j = 0; j < nov; j++) {
-              float col_sum = 0;
-              for (int i = 0; i < nov; i++) {
-                col_sum += h_r[i] * mat[i*nov + j];
-              }
-              h_c[j] = 1 / col_sum;
-            }
-            for (int i = 0; i < nov; i++) {
-              float row_sum = 0;
-              for (int j = 0; j < nov; j++) {
-                row_sum += mat[i*nov + j] * h_c[j];
-              }
-              h_r[i] = 1 / row_sum;
-            }
-          }
-          cudaMemcpy( d_r, h_r, (nov) * sizeof(float), cudaMemcpyHostToDevice);
-          cudaMemcpy( d_c, h_c, (nov) * sizeof(float), cudaMemcpyHostToDevice);
-          delete[] h_r;
-          delete[] h_c;
-        } else {
-          cudaMalloc( &d_r, (nov * grid_size * block_size) * sizeof(float));
-          cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
-        }
+        cudaMalloc( &d_r, (nov * grid_size * block_size) * sizeof(float));
+        cudaMalloc( &d_c, (nov * grid_size * block_size) * sizeof(float));
 
         while (check) {
-          if (scale_intervals == -1) {
-            double stt = omp_get_wtime();
-            kernel_approximation_shared_scale_vectors_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int) + 2*nov*sizeof(float)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times, rand());
-            cudaDeviceSynchronize();
-            double enn = omp_get_wtime();
-            cout << "kernel" << id << " in " << (enn - stt) << endl;
-
-          } else {
-            double stt = omp_get_wtime();
-            kernel_approximation_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times, rand());
-            cudaDeviceSynchronize();
-            double enn = omp_get_wtime();
-            cout << "kernel" << id << " in " << (enn - stt) << endl;
-          }
+          double stt = omp_get_wtime();
+          kernel_approximation_sparse<<< grid_size , block_size , (2*(nnz + nov + 1)*sizeof(int)) >>> (d_rptrs, d_cols, d_cptrs, d_rows, d_p, d_r, d_c, nov, nnz, scale_intervals, scale_times, rand());
+          cudaDeviceSynchronize();
+          double enn = omp_get_wtime();
+          cout << "kernel" << id << " in " << (enn - stt) << endl;
 
           cudaMemcpy( h_p, d_p, grid_size * block_size * sizeof(double), cudaMemcpyDeviceToHost);
 

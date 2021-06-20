@@ -6,26 +6,37 @@
 #include <unistd.h>
 #include <omp.h>
 #include <stdio.h>
+#include <getopt.h>
 #include "util.h"
 #include "algo.h"
 #include "gpu_exact_dense.cu"
 #include "gpu_exact_sparse.cu"
 #include "gpu_approximation_dense.cu"
 #include "gpu_approximation_sparse.cu"
+#include <math.h>
 using namespace std;
 
 
 template <class T>
 void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *rvals, int perman_algo, int nov, int nnz, int gpu_num, int threads,
-            bool gpu, bool cpu, bool dense, bool approximation, int number_of_times, int scale_intervals, int scale_times) 
+            bool gpu, bool cpu, bool dense, bool approximation, int number_of_times, int scale_intervals, int scale_times, string type) 
 {
   int grid_dim = 2048;
   int block_dim = 256;
+  if (type == "double") {
+    block_dim = 128;
+  }
+
   double start, end, perman;
   if (gpu) {
     if (dense) { // dense
       if (!approximation) { // exact
-        if (perman_algo == 1) {
+        if (perman_algo == 0) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xglobal(mat, nov, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xlocal " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 1) {
           start = omp_get_wtime();
           perman = gpu_perman64_xlocal(mat, nov, grid_dim, block_dim);
           end = omp_get_wtime();
@@ -59,7 +70,7 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
           start = omp_get_wtime();
           perman = gpu_perman64_xshared_coalescing_mshared_multigpu_manual_distribution(mat, nov, 4, grid_dim, block_dim);
           end = omp_get_wtime();
-          cout << "Result: gpu_perman64_xshared_coalescing_mshared_multigpu_manual_distribution " << perman << " in " << (end - start) << endl;
+          printf("Result: gpu_perman64_xshared_coalescing_mshared_multigpu_manual_distribution %2lf in %lf\n", perman, end-start);
         } else {
           cout << "Unknown Algorithm ID" << endl;
         } 
@@ -69,6 +80,7 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
           perman = gpu_perman64_rasmussen(mat, nov, number_of_times);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_rasmussen %2lf in %lf\n", perman, end-start);
+          cout << "Result: gpu_perman64_rasmussen " << perman << " in " << (end - start) << endl;
         } else if (perman_algo == 2) { // approximation_with_scaling
           start = omp_get_wtime();
           perman = gpu_perman64_approximation(mat, nov, number_of_times, scale_intervals, scale_times);
@@ -125,6 +137,11 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
           perman = gpu_perman64_xshared_coalescing_mshared_skipper(mat, rptrs, cols, cptrs, rows, cvals, nov, grid_dim, block_dim);
           end = omp_get_wtime();
           cout << "Result: gpu_perman64_xshared_coalescing_mshared_skipper " << perman << " in " << (end - start) << endl;
+        } else if (perman_algo == 8) {
+          start = omp_get_wtime();
+          perman = gpu_perman64_xshared_coalescing_mshared_multigpucpu_chunks_skipper(mat, rptrs, cols, cptrs, rows, cvals, nov, gpu_num, cpu, threads, grid_dim, block_dim);
+          end = omp_get_wtime();
+          cout << "Result: gpu_perman64_xshared_coalescing_mshared_multigpucpu_chunks_skipper " << perman << " in " << (end - start) << endl;
         } else if (perman_algo == 66) {
           start = omp_get_wtime();
           perman = gpu_perman64_xshared_coalescing_mshared_multigpu_sparse_manual_distribution(mat, cptrs, rows, cvals, nov, 4, grid_dim, block_dim);
@@ -136,22 +153,22 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
       } else { // approximation
         if (perman_algo == 1) { // rasmussen
           start = omp_get_wtime();
-          perman = gpu_perman64_rasmussen_sparse(rptrs, cols, nov, nnz, number_of_times);
+          perman = gpu_perman64_rasmussen_sparse(rptrs, cols, nov, nnz, number_of_times, false);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_rasmussen_sparse %2lf in %lf\n", perman, end-start);
         } else if (perman_algo == 2) { // approximation_with_scaling
           start = omp_get_wtime();
-          perman = gpu_perman64_approximation_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, scale_intervals, scale_times);
+          perman = gpu_perman64_approximation_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, scale_intervals, scale_times, false);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_approximation_sparse %2lf in %lf\n", perman, end-start);
         } else if (perman_algo == 3) { // rasmussen
           start = omp_get_wtime();
-          perman = gpu_perman64_rasmussen_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, threads);
+          perman = gpu_perman64_rasmussen_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, threads, false);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_rasmussen_multigpucpu_chunks %2lf in %lf\n", perman, end-start);
         } else if (perman_algo == 4) { // approximation_with_scaling
           start = omp_get_wtime();
-          perman = gpu_perman64_approximation_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, scale_intervals, scale_times, threads);
+          perman = gpu_perman64_approximation_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, scale_intervals, scale_times, threads, false);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_approximation_multigpucpu_chunks_sparse %2lf in %lf\n", perman, end-start);
         } else {
@@ -172,6 +189,7 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
           perman = rasmussen(mat, nov, number_of_times, threads);
           end = omp_get_wtime();
           printf("Result: rasmussen %2lf in %lf\n", perman, end-start);
+          cout << "Result: rasmussen " << perman << " in " << (end - start) << endl;
         } else if (perman_algo == 2) { // approximation_with_scaling
           start = omp_get_wtime();
           perman = approximation_perman64(mat, nov, number_of_times, scale_intervals, scale_times, threads);
@@ -219,6 +237,60 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
   }
 }
 
+void RunPermanForGridGraphs(int m, int n, int perman_algo, bool gpu, bool cpu, int gpu_num, int threads, int number_of_times, int scale_intervals, int scale_times) {
+  int *cptrs, *rows, *rptrs, *cols;
+  int nov = m * n / 2;
+  int nnz = gridGraph2compressed(m, n, cptrs, rows, rptrs, cols);
+  if (nnz == -1) {
+    return;
+  }
+  double start, end, perman;
+  if (gpu) {
+    if (perman_algo == 1) { // rasmussen
+      start = omp_get_wtime();
+      perman = gpu_perman64_rasmussen_sparse(rptrs, cols, nov, nnz, number_of_times, true);
+      end = omp_get_wtime();
+      printf("Result: gpu_perman64_rasmussen_sparse %2lf in %lf\n", perman, end-start);
+      cout << "Try: gpu_perman64_rasmussen_sparse " << perman << " in " << (end - start) << endl;
+    } else if (perman_algo == 2) { // approximation_with_scaling
+      start = omp_get_wtime();
+      perman = gpu_perman64_approximation_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, scale_intervals, scale_times, true);
+      end = omp_get_wtime();
+      printf("Result: gpu_perman64_approximation_sparse %2lf in %lf\n", perman, end-start);
+      cout << "Try: gpu_perman64_approximation_sparse " << perman << " in " << (end - start) << endl;
+    } else if (perman_algo == 3) { // rasmussen
+      start = omp_get_wtime();
+      perman = gpu_perman64_rasmussen_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, threads, true);
+      end = omp_get_wtime();
+      printf("Result: gpu_perman64_rasmussen_multigpucpu_chunks %2lf in %lf\n", perman, end-start);
+    } else if (perman_algo == 4) { // approximation_with_scaling
+      start = omp_get_wtime();
+      perman = gpu_perman64_approximation_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, scale_intervals, scale_times, threads, true);
+      end = omp_get_wtime();
+      printf("Result: gpu_perman64_approximation_multigpucpu_chunks_sparse %2lf in %lf\n", perman, end-start);
+    } else {
+      cout << "Unknown Algorithm ID" << endl;
+    }
+  } else if (cpu) {
+    if (perman_algo == 1) { // rasmussen
+      start = omp_get_wtime();
+      perman = rasmussen_sparse(cptrs, rows, rptrs, cols, nov, number_of_times, threads);
+      end = omp_get_wtime();
+      printf("Result: rasmussen_sparse %2lf in %lf\n", perman, end-start);
+    } else if (perman_algo == 2) { // approximation_with_scaling
+      start = omp_get_wtime();
+      perman = approximation_perman64_sparse(cptrs, rows, rptrs, cols, nov, number_of_times, scale_intervals, scale_times, threads);
+      end = omp_get_wtime();
+      printf("Result: approximation_perman64_sparse %2lf in %lf\n", perman, end-start);
+    } else {
+      cout << "Unknown Algorithm ID" << endl;
+    } 
+  }
+  delete[] cptrs;
+  delete[] rows;
+  delete[] rptrs;
+  delete[] cols;
+}
 
 int main (int argc, char **argv)
 { 
@@ -237,10 +309,37 @@ int main (int argc, char **argv)
   int scale_intervals = 4;
   int scale_times = 5;
 
-  int c;
+  bool grid_graph = false;
+  int gridm = 36;
+  int gridn = 36;
 
-  while ((c = getopt (argc, argv, "bsr:t:m:gd:cap:x:y:z:")) != -1)
-    switch (c)
+  /* A string listing valid short options letters.  */
+  const char* const short_options = "bsr:t:f:gd:cap:x:y:z:im:n:";
+  /* An array describing valid long options.  */
+  const struct option long_options[] = {
+    { "binary",     0, NULL, 'b' },
+    { "sparse",     0, NULL, 's' },
+    { "preprocessing",   1, NULL, 'r' },
+    { "threads",  1, NULL, 't' },
+    { "file",  1, NULL, 'f' },
+    { "gpu",  0, NULL, 'g' },
+    { "device",  1, NULL, 'd' },
+    { "cpu",  0, NULL, 'c' },
+    { "approximation",  0, NULL, 'a' },
+    { "perman",  1, NULL, 'p' },
+    { "numOfTimes",  1, NULL, 'x' },
+    { "scaleIntervals",  1, NULL, 'y' },
+    { "scaleTimes",  1, NULL, 'z' },
+    { "grid",  0, NULL, 'i' },
+    { "gridm",  1, NULL, 'm' },
+    { "gridn",  1, NULL, 'n' },
+    { NULL,       0, NULL, 0   }   /* Required at end of array.  */
+  };
+
+  int next_option;
+  do {
+    next_option = getopt_long (argc, argv, short_options, long_options, NULL);
+    switch (next_option)
     {
       case 'b':
         generic = false;
@@ -262,9 +361,9 @@ int main (int argc, char **argv)
         }
         threads = atoi(optarg);
         break;
-      case 'm':
+      case 'f':
         if (optarg[0] == '-'){
-          fprintf (stderr, "Option -m requires an argument.\n");
+          fprintf (stderr, "Option -f requires an argument.\n");
           return 1;
         }
         filename = optarg;
@@ -313,30 +412,36 @@ int main (int argc, char **argv)
         }
         scale_times = atoi(optarg);
         break;
+      case 'i':
+        grid_graph = true;
+        break;
+      case 'm':
+        if (optarg[0] == '-'){
+          fprintf (stderr, "Option -m requires an argument.\n");
+          return 1;
+        }
+        gridm = atoi(optarg);
+        break;
+      case 'n':
+        if (optarg[0] == '-'){
+          fprintf (stderr, "Option -n requires an argument.\n");
+          return 1;
+        }
+        gridn = atoi(optarg);
+        break;
       case '?':
-        if (optopt == 't')
-          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-        else if (optopt == 'm')
-          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-        else if (optopt == 'r')
-          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-        else if (optopt == 'd')
-          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-        else if (optopt == 'p')
-          fprintf (stderr, "Option -%c requires an argument.\n", optopt);
-        else if (isprint (optopt))
-          fprintf (stderr, "Unknown option `-%c'.\n", optopt);
-        else
-          fprintf (stderr,
-                   "Unknown option character `\\x%x'.\n",
-                   optopt);
         return 1;
+      case -1:    /* Done with options.  */
+        break;
       default:
         abort ();
     }
 
-  if (filename == "") {
-    fprintf (stderr, "Option -m is a required argument.\n");
+  } while (next_option != -1);
+
+  if (!grid_graph && filename == "") {
+    fprintf (stderr, "Option -f is a required argument.\n");
+    return 1;
   }
 
   for (int index = optind; index < argc; index++)
@@ -348,6 +453,10 @@ int main (int argc, char **argv)
     gpu = true;
   }
 
+  if (grid_graph) {
+    RunPermanForGridGraphs(gridm, gridn, perman_algo, gpu, cpu, gpu_num, threads, number_of_times, scale_intervals, scale_times);
+    return 0;
+  }
 
   int nov, nnz;
   string type;
@@ -378,7 +487,7 @@ int main (int argc, char **argv)
       matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
     }
 
-    RunAlgo(mat, cptrs, rows, cvals, rptrs, cols, rvals, perman_algo, nov, nnz, gpu_num, threads, gpu, cpu, dense, approximation, number_of_times, scale_intervals, scale_times);
+    RunAlgo(mat, cptrs, rows, cvals, rptrs, cols, rvals, perman_algo, nov, nnz, gpu_num, threads, gpu, cpu, dense, approximation, number_of_times, scale_intervals, scale_times, type);
 
     delete[] mat;
     delete[] cptrs;
@@ -411,7 +520,7 @@ int main (int argc, char **argv)
     } else {
       matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
     }
-    RunAlgo(mat, cptrs, rows, cvals, rptrs, cols, rvals, perman_algo, nov, nnz, gpu_num, threads, gpu, cpu, dense, approximation, number_of_times, scale_intervals, scale_times);
+    RunAlgo(mat, cptrs, rows, cvals, rptrs, cols, rvals, perman_algo, nov, nnz, gpu_num, threads, gpu, cpu, dense, approximation, number_of_times, scale_intervals, scale_times, type);
 
     delete[] mat;
     delete[] cptrs;
@@ -445,7 +554,7 @@ int main (int argc, char **argv)
       matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
     }
 
-    RunAlgo(mat, cptrs, rows, cvals, rptrs, cols, rvals, perman_algo, nov, nnz, gpu_num, threads, gpu, cpu, dense, approximation, number_of_times, scale_intervals, scale_times);
+    RunAlgo(mat, cptrs, rows, cvals, rptrs, cols, rvals, perman_algo, nov, nnz, gpu_num, threads, gpu, cpu, dense, approximation, number_of_times, scale_intervals, scale_times, type);
 
     delete[] mat;
     delete[] cptrs;
