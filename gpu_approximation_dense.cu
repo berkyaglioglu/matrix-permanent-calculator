@@ -172,29 +172,41 @@ __global__ void kernel_rasmussen(T* mat, double* p, int nov, int rand) {
   curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
+  long row_extracted = 0;
   
   double perm = 1;
+  int row;
   
-  for (int row = 0; row < nov; row++) {
+  for (int i = 0; i < nov; i++) {
     // multiply permanent with number of nonzeros in the current row
-    int nnz = 0;
-    for (int c = 0; c < nov; c++) {
-      if (!((col_extracted >> c) & 1L) && shared_mat[row * nov + c] != 0) {
-        nnz++;
+    int min_nnz = nov+1;
+    int nnz;
+    for (int r = 0; r < nov; r++) {
+      if (!((row_extracted >> r) & 1L)) {
+        nnz = 0;
+        for (int c = 0; c < nov; c++) {
+          if (!((col_extracted >> c) & 1L) && shared_mat[r * nov + c] != 0) {
+            nnz++;
+          }
+        }
+        if (min_nnz > nnz) {
+          min_nnz = nnz;
+          row = r;
+        }
       }
     }
-    if (nnz == 0) {
+    if (min_nnz == 0) {
       perm = 0;
       break;
     }
-    perm *= nnz;
+    perm *= min_nnz;
 
     // choose the column to be extracted randomly
-    int random = curand_uniform(&state) / (1.0 / float(nnz));
+    int random = curand_uniform(&state) / (1.0 / float(min_nnz));
     int col;
 
-    if (random >= nnz) {
-      random = nnz - 1;
+    if (random >= min_nnz) {
+      random = min_nnz - 1;
     }
     for (int c = 0; c < nov; c++) {
       if (!((col_extracted >> c) & 1L) && shared_mat[row * nov + c] != 0) {
@@ -209,6 +221,8 @@ __global__ void kernel_rasmussen(T* mat, double* p, int nov, int rand) {
 
     // exract the column
     col_extracted |= (1L << col);
+    // exract the row
+    row_extracted |= (1L << row);
   }
 
   p[tid] = perm;
@@ -234,6 +248,7 @@ __global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, 
   curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
+  long row_extracted = 0;
   bool is_break;
   for (int i = 0; i < nov; i++) {
     d_r[tid*nov + i] = 1;
@@ -241,8 +256,27 @@ __global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, 
   }
   
   double perm = 1;
+  double col_sum, row_sum;
+  int row;
+  int min;
+  int nnz;
   
-  for (int row = 0; row < nov; row++) {
+  for (int iter = 0; iter < nov; iter++) {
+    min=nov+1;
+    for (int i = 0; i < nov; i++) {
+      if (!((row_extracted >> i) & 1L)) {
+        nnz = 0;
+        for (int j = 0; j < nov; j++) {
+          if (!((col_extracted >> j) & 1L) && shared_mat[(i * nov) + j] != 0) {
+            nnz++;
+          }
+        }
+        if (min > nnz) {
+          min = nnz;
+          row = i;
+        }
+      }
+    }
     // Scale part
     if (row % scale_intervals == 0) {
 
@@ -250,9 +284,11 @@ __global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, 
 
         for (int j = 0; j < nov; j++) {
           if (!((col_extracted >> j) & 1L)) {
-            double col_sum = 0;
-            for (int i = row; i < nov; i++) {
-              col_sum += d_r[tid*nov + i] * shared_mat[i*nov + j];
+            col_sum = 0;
+            for (int i = 0; i < nov; i++) {
+              if (!((row_extracted >> i) & 1L)) {
+                col_sum += d_r[tid*nov + i] * shared_mat[i*nov + j];
+              }
             }
             if (col_sum == 0) {
               is_break = true;
@@ -265,18 +301,20 @@ __global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, 
           break;
         }
 
-        for (int i = row; i < nov; i++) {
-          double row_sum = 0;
-          for (int j = 0; j < nov; j++) {
-            if (!((col_extracted >> j) & 1L)) {
-              row_sum += shared_mat[i*nov + j] * d_c[tid*nov + j];
+        for (int i = 0; i < nov; i++) {
+          if (!((row_extracted >> i) & 1L)) {
+            row_sum = 0;
+            for (int j = 0; j < nov; j++) {
+              if (!((col_extracted >> j) & 1L)) {
+                row_sum += shared_mat[i*nov + j] * d_c[tid*nov + j];
+              }
             }
+            if (row_sum == 0) {
+              is_break = true;
+              break;
+            }
+            d_r[tid*nov + i] = 1 / row_sum;
           }
-          if (row_sum == 0) {
-            is_break = true;
-            break;
-          }
-          d_r[tid*nov + i] = 1 / row_sum;
         }
         if (is_break) {
           break;
@@ -323,6 +361,8 @@ __global__ void kernel_approximation(T* mat, double* p, float* d_r, float* d_c, 
 
     // exract the column
     col_extracted |= (1L << col);
+    // exract the row
+    row_extracted |= (1L << row);
   }
 
   p[tid] = perm;

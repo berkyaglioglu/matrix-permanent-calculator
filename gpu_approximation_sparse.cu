@@ -181,30 +181,43 @@ __global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int no
   curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
+  long row_extracted = 0;
   
   double perm = 1;
+  int row;
   
-  for (int row = 0; row < nov; row++) {
+  for (int k = 0; k < nov; k++) {
     // multiply permanent with number of nonzeros in the current row
-    nnz = 0;
-    for (int i = shared_rptrs[row]; i < shared_rptrs[row+1]; i++) {
-      int c = shared_cols[i];
-      if (!((col_extracted >> c) & 1L)) {
-        nnz++;
+    int min_nnz = nov+1;
+    int nnz;
+    for (int r = 0; r < nov; r++) {
+      if (!((row_extracted >> r) & 1L)) {
+        nnz = 0;
+        for (int i = shared_rptrs[r]; i < shared_rptrs[r+1]; i++) {
+          int c = shared_cols[i];
+          if (!((col_extracted >> c) & 1L)) {
+            nnz++;
+          }
+        }
+        if (min_nnz > nnz) {
+          min_nnz = nnz;
+          row = r;
+        }
       }
     }
-    if (nnz == 0) {
+    
+    if (min_nnz == 0) {
       perm = 0;
       break;
     }
-    perm *= nnz;
+    perm *= min_nnz;
 
     // choose the column to be extracted randomly
-    int random = curand_uniform(&state) / (1.0 / float(nnz));
+    int random = curand_uniform(&state) / (1.0 / float(min_nnz));
     int col;
 
-    if (random >= nnz) {
-      random = nnz - 1;
+    if (random >= min_nnz) {
+      random = min_nnz - 1;
     }
     for (int i = shared_rptrs[row]; i < shared_rptrs[row+1]; i++) {
       int c = shared_cols[i];
@@ -220,6 +233,8 @@ __global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int no
 
     // exract the column
     col_extracted |= (1L << col);
+    // exract the row
+    row_extracted |= (1L << row);
   }
 
   p[tid] = perm;
@@ -260,6 +275,7 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
   curand_init(rand*tid,0,0,&state);
 
   long col_extracted = 0;
+  long row_extracted = 0;
   bool is_break;
   for (int i = 0; i < nov; i++) {
     d_r[tid*nov + i] = 1;
@@ -267,8 +283,28 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
   }
   
   double perm = 1;
+  double col_sum, row_sum;
+  int row;
+  int min;
+  int nnz_curr;
   
-  for (int row = 0; row < nov; row++) {
+  for (int iter = 0; iter < nov; iter++) {
+    min=nov+1;
+    for (int i = 0; i < nov; i++) {
+      if (!((row_extracted >> i) & 1L)) {
+        nnz_curr = 0;
+        for (int j = shared_rptrs[i]; j < shared_rptrs[i+1]; j++) {
+          int c = shared_cols[j];
+          if (!((col_extracted >> c) & 1L)) {
+            nnz_curr++;
+          }
+        }
+        if (min > nnz_curr) {
+          min = nnz_curr;
+          row = i;
+        }
+      }
+    }
     // Scale part
     if (row % scale_intervals == 0) {
 
@@ -276,11 +312,13 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
 
         for (int j = 0; j < nov; j++) {
           if (!((col_extracted >> j) & 1L)) {
-            double col_sum = 0;
+            col_sum = 0;
             int r;
             for (int i = shared_cptrs[j]; i < shared_cptrs[j+1]; i++) {
               r = shared_rows[i];
-              col_sum += d_r[tid*nov + r];
+              if (!((row_extracted >> r) & 1L)) {
+                col_sum += d_r[tid*nov + r];
+              }
             }
             if (col_sum == 0) {
               is_break = true;
@@ -293,20 +331,22 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
           break;
         }
 
-        for (int i = row; i < nov; i++) {
-          double row_sum = 0;
-          int c;
-          for (int j = shared_rptrs[i]; j < shared_rptrs[i+1]; j++) {
-            c = shared_cols[j];
-            if (!((col_extracted >> c) & 1L)) {
-              row_sum += d_c[tid*nov + c];
+        for (int i = 0; i < nov; i++) {
+          if (!((row_extracted >> i) & 1L)) {
+            row_sum = 0;
+            int c;
+            for (int j = shared_rptrs[i]; j < shared_rptrs[i+1]; j++) {
+              c = shared_cols[j];
+              if (!((col_extracted >> c) & 1L)) {
+                row_sum += d_c[tid*nov + c];
+              }
             }
+            if (row_sum == 0) {
+              is_break = true;
+              break;
+            }
+            d_r[tid*nov + i] = 1 / row_sum;
           }
-          if (row_sum == 0) {
-            is_break = true;
-            break;
-          }
-          d_r[tid*nov + i] = 1 / row_sum;
         }
         if (is_break) {
           break;
@@ -355,137 +395,8 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
 
     // exract the column
     col_extracted |= (1L << col);
-  }
-
-  p[tid] = perm;
-}
-
-__global__ void kernel_approximation_grid_graph_sparse(int* rptrs, int* cols, double* p, float* d_r, float* d_c, int nov, int nnz, int scale_intervals, int scale_times, int rand) {
-  int tid = threadIdx.x + (blockIdx.x * blockDim.x);
-  int thread_id = threadIdx.x;
-  int block_dim = blockDim.x;
-
-  extern __shared__ float shared_mem[]; 
-  int *shared_ptrs = (int*) shared_mem; // size = nov + 1
-  int *shared_colsrows = (int*) &shared_ptrs[nov + 1]; // size = nnz
-
-  int max;
-  if (nnz > nov) {
-    max = nnz;
-  } else {
-    max = nov + 1;
-  }
-
-  for (int k = 0; k < (max / block_dim + 1); k++) {
-    if ((block_dim * k + thread_id) < nnz) {
-      shared_colsrows[block_dim * k + thread_id] = cols[block_dim * k + thread_id];
-    }
-    if ((block_dim * k + thread_id) < (nov + 1)) {
-      shared_ptrs[block_dim * k + thread_id] = rptrs[block_dim * k + thread_id];
-    }
-  }
-
-  __syncthreads();
-
-  curandState_t state;
-  curand_init(rand*tid,0,0,&state);
-
-  long col_extracted = 0;
-  bool is_break;
-  for (int i = 0; i < nov; i++) {
-    d_r[tid*nov + i] = 1;
-    d_c[tid*nov + i] = 1;
-  }
-  
-  double perm = 1;
-  
-  for (int row = 0; row < nov; row++) {
-    // Scale part
-    if (row % scale_intervals == 0) {
-
-      for (int k = 0; k < scale_times; k++) {
-
-        for (int j = 0; j < nov; j++) {
-          if (!((col_extracted >> j) & 1L)) {
-            double col_sum = 0;
-            int r;
-            for (int i = shared_ptrs[j]; i < shared_ptrs[j+1]; i++) {
-              r = shared_colsrows[i];
-              col_sum += d_r[tid*nov + r];
-            }
-            if (col_sum == 0) {
-              is_break = true;
-              break;
-            }
-            d_c[tid*nov + j] = 1 / col_sum;
-          }
-        }
-        if (is_break) {
-          break;
-        }
-
-        for (int i = row; i < nov; i++) {
-          double row_sum = 0;
-          int c;
-          for (int j = shared_ptrs[i]; j < shared_ptrs[i+1]; j++) {
-            c = shared_colsrows[j];
-            if (!((col_extracted >> c) & 1L)) {
-              row_sum += d_c[tid*nov + c];
-            }
-          }
-          if (row_sum == 0) {
-            is_break = true;
-            break;
-          }
-          d_r[tid*nov + i] = 1 / row_sum;
-        }
-        if (is_break) {
-          break;
-        }
-      }
-
-    }
-
-    if (is_break) {
-      perm = 0;
-      break;
-    }
-
-    // use scaled matrix for pj
-    double sum_row_of_S = 0;
-    for (int i = shared_ptrs[row]; i < shared_ptrs[row+1]; i++) {
-      int c = shared_colsrows[i];
-      if (!((col_extracted >> c) & 1L)) {
-        sum_row_of_S += d_r[tid*nov + row] * d_c[tid*nov + c];
-      }
-    }
-    if (sum_row_of_S == 0) {
-      perm = 0;
-      break;
-    }
-
-    double random = curand_uniform(&state) * sum_row_of_S;
-    double temp = 0;
-    double s, pj;
-    int col;
-    for (int i = shared_ptrs[row]; i < shared_ptrs[row+1]; i++) {
-      int c = shared_colsrows[i];
-      if (!((col_extracted >> c) & 1L)) {
-        s = d_r[tid*nov + row] * d_c[tid*nov + c];
-        temp += s;
-        if (random <= temp) {
-          col = c;
-          pj = s / sum_row_of_S;
-          break;
-        }
-      }
-    }
-
-    // update perm
-    perm /= pj;
-
-    // exract the column
-    col_extracted |= (1L << col);
+    // exract the row
+    row_extracted |= (1L << row);
   }
 
   p[tid] = perm;

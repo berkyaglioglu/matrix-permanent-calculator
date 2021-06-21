@@ -86,16 +86,19 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
           perman = gpu_perman64_approximation(mat, nov, number_of_times, scale_intervals, scale_times);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_approximation %2lf in %lf\n", perman, end-start);
+          cout << "Result: gpu_perman64_approximation " << perman << " in " << (end - start) << endl;
         } else if (perman_algo == 3) { // rasmussen
           start = omp_get_wtime();
           perman = gpu_perman64_rasmussen_multigpucpu_chunks(mat, nov, number_of_times, gpu_num, cpu, threads);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_rasmussen_multigpucpu_chunks %2lf in %lf\n", perman, end-start);
+          cout << "Result: gpu_perman64_rasmussen_multigpucpu_chunks " << perman << " in " << (end - start) << endl;
         } else if (perman_algo == 4) { // approximation_with_scaling
           start = omp_get_wtime();
           perman = gpu_perman64_approximation_multigpucpu_chunks(mat, nov, number_of_times, gpu_num, cpu, scale_intervals, scale_times, threads);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_approximation_multigpucpu_chunks %2lf in %lf\n", perman, end-start);
+          cout << "Result: gpu_perman64_approximation_multigpucpu_chunks " << perman << " in " << (end - start) << endl;
         } else {
           cout << "Unknown Algorithm ID" << endl;
         } 
@@ -156,21 +159,25 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
           perman = gpu_perman64_rasmussen_sparse(rptrs, cols, nov, nnz, number_of_times, false);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_rasmussen_sparse %2lf in %lf\n", perman, end-start);
+          cout << "Result: gpu_perman64_rasmussen_sparse " << perman << " in " << (end - start) << endl;
         } else if (perman_algo == 2) { // approximation_with_scaling
           start = omp_get_wtime();
           perman = gpu_perman64_approximation_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, scale_intervals, scale_times, false);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_approximation_sparse %2lf in %lf\n", perman, end-start);
+          cout << "Result: gpu_perman64_approximation_sparse " << perman << " in " << (end - start) << endl;
         } else if (perman_algo == 3) { // rasmussen
           start = omp_get_wtime();
           perman = gpu_perman64_rasmussen_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, threads, false);
           end = omp_get_wtime();
-          printf("Result: gpu_perman64_rasmussen_multigpucpu_chunks %2lf in %lf\n", perman, end-start);
+          printf("Result: gpu_perman64_rasmussen_multigpucpu_chunks_sparse %2lf in %lf\n", perman, end-start);
+          cout << "Result: gpu_perman64_rasmussen_multigpucpu_chunks_sparse " << perman << " in " << (end - start) << endl;
         } else if (perman_algo == 4) { // approximation_with_scaling
           start = omp_get_wtime();
           perman = gpu_perman64_approximation_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, scale_intervals, scale_times, threads, false);
           end = omp_get_wtime();
           printf("Result: gpu_perman64_approximation_multigpucpu_chunks_sparse %2lf in %lf\n", perman, end-start);
+          cout << "Result: gpu_perman64_approximation_multigpucpu_chunks_sparse " << perman << " in " << (end - start) << endl;
         } else {
           cout << "Unknown Algorithm ID" << endl;
         } 
@@ -195,6 +202,7 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
           perman = approximation_perman64(mat, nov, number_of_times, scale_intervals, scale_times, threads);
           end = omp_get_wtime();
           printf("Result: approximation_perman64 %2lf in %lf\n", perman, end-start);
+          cout << "Result: approximation_perman64 " << perman << " in " << (end - start) << endl;
         } else {
           cout << "Unknown Algorithm ID" << endl;
         } 
@@ -221,14 +229,16 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
       } else { // approximation
         if (perman_algo == 1) { // rasmussen
           start = omp_get_wtime();
-          perman = rasmussen_sparse(cptrs, rows, rptrs, cols, nov, number_of_times, threads);
+          perman = rasmussen_sparse(mat, rptrs, cols, nov, number_of_times, threads);
           end = omp_get_wtime();
           printf("Result: rasmussen_sparse %2lf in %lf\n", perman, end-start);
+          cout << "Result: rasmussen_sparse " << perman << " in " << (end - start) << endl;
         } else if (perman_algo == 2) { // approximation_with_scaling
           start = omp_get_wtime();
           perman = approximation_perman64_sparse(cptrs, rows, rptrs, cols, nov, number_of_times, scale_intervals, scale_times, threads);
           end = omp_get_wtime();
           printf("Result: approximation_perman64_sparse %2lf in %lf\n", perman, end-start);
+          cout << "Result: approximation_perman64_sparse " << perman << " in " << (end - start) << endl;
         } else {
           cout << "Unknown Algorithm ID" << endl;
         } 
@@ -238,10 +248,15 @@ void RunAlgo(T *mat, int *cptrs, int *rows, T *cvals, int *rptrs, int *cols, T *
 }
 
 void RunPermanForGridGraphs(int m, int n, int perman_algo, bool gpu, bool cpu, int gpu_num, int threads, int number_of_times, int scale_intervals, int scale_times) {
-  int *cptrs, *rows, *rptrs, *cols;
+  int *mat, *cptrs, *rows, *rptrs, *cols;
   int nov = m * n / 2;
-  int nnz = gridGraph2compressed(m, n, cptrs, rows, rptrs, cols);
+  int nnz = gridGraph2compressed(m, n, mat, cptrs, rows, rptrs, cols);
   if (nnz == -1) {
+    delete[] mat;
+    delete[] cptrs;
+    delete[] rows;
+    delete[] rptrs;
+    delete[] cols;
     return;
   }
   double start, end, perman;
@@ -263,29 +278,34 @@ void RunPermanForGridGraphs(int m, int n, int perman_algo, bool gpu, bool cpu, i
       perman = gpu_perman64_rasmussen_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, threads, true);
       end = omp_get_wtime();
       printf("Result: gpu_perman64_rasmussen_multigpucpu_chunks %2lf in %lf\n", perman, end-start);
+      cout << "Try: gpu_perman64_rasmussen_multigpucpu_chunks " << perman << " in " << (end - start) << endl;
     } else if (perman_algo == 4) { // approximation_with_scaling
       start = omp_get_wtime();
       perman = gpu_perman64_approximation_multigpucpu_chunks_sparse(cptrs, rows, rptrs, cols, nov, nnz, number_of_times, gpu_num, cpu, scale_intervals, scale_times, threads, true);
       end = omp_get_wtime();
       printf("Result: gpu_perman64_approximation_multigpucpu_chunks_sparse %2lf in %lf\n", perman, end-start);
+      cout << "Try: gpu_perman64_approximation_multigpucpu_chunks_sparse " << perman << " in " << (end - start) << endl;
     } else {
       cout << "Unknown Algorithm ID" << endl;
     }
   } else if (cpu) {
     if (perman_algo == 1) { // rasmussen
       start = omp_get_wtime();
-      perman = rasmussen_sparse(cptrs, rows, rptrs, cols, nov, number_of_times, threads);
+      perman = rasmussen_sparse(mat, rptrs, cols, nov, number_of_times, threads);
       end = omp_get_wtime();
       printf("Result: rasmussen_sparse %2lf in %lf\n", perman, end-start);
+      cout << "Try: rasmussen_sparse " << perman << " in " << (end - start) << endl;
     } else if (perman_algo == 2) { // approximation_with_scaling
       start = omp_get_wtime();
       perman = approximation_perman64_sparse(cptrs, rows, rptrs, cols, nov, number_of_times, scale_intervals, scale_times, threads);
       end = omp_get_wtime();
       printf("Result: approximation_perman64_sparse %2lf in %lf\n", perman, end-start);
+      cout << "Try: approximation_perman64_sparse " << perman << " in " << (end - start) << endl;
     } else {
       cout << "Unknown Algorithm ID" << endl;
     } 
   }
+  delete[] mat;
   delete[] cptrs;
   delete[] rows;
   delete[] rptrs;

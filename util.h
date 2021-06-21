@@ -397,7 +397,7 @@ void matrix2graph(T* mat, int nov, int*& xadj, int*& adj, T*& val) {
 	xadj[2 * nov] = nnz;
 }
 
-int gridGraph2compressed(int m, int n, int*& cptrs, int*& rows, int*& rptrs, int*& cols) {
+int gridGraph2compressed(int m, int n, int*& mat, int*& cptrs, int*& rows, int*& rptrs, int*& cols) {
 	if (m % 2 == 1 && n % 2 == 1) {
 		cout << "one of the grid dimensions should be positive.";
 		return -1;
@@ -471,7 +471,7 @@ int gridGraph2compressed(int m, int n, int*& cptrs, int*& rows, int*& rptrs, int
 		}
 	}
 
-	int *mat = new int[nov*nov];
+	mat = new int[nov*nov];
 	for (int i = 0; i < nov*nov; i++) {
 		mat[i] = 0;
 	}
@@ -513,7 +513,6 @@ int gridGraph2compressed(int m, int n, int*& cptrs, int*& rows, int*& rptrs, int
 	rptrs[nov] = curr_elt_r;
 	cptrs[nov] = curr_elt_c;
 
-	delete[] mat;
 	return nnz;
 }
 
@@ -681,7 +680,7 @@ void matrix2compressed_skipOrder(T* mat, int*& cptrs, int*& rows, T*& cvals, int
 	matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
 }
 
-bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int row, long col_extracted, double d_r[], double d_c[], int scale_times) {
+bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, long row_extracted, long col_extracted, double d_r[], double d_c[], int scale_times) {
 	
 	for (int k = 0; k < scale_times; k++) {
 
@@ -689,12 +688,10 @@ bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, i
 			if (!((col_extracted >> j) & 1L)) {
 				double col_sum = 0;
 				int r;
-				for (int i = cptrs[j+1]-1; i >= cptrs[j]; i--) {
+				for (int i = cptrs[j]; i < cptrs[j+1]; i++) {
 					r = rows[i];
-					if (r >= row) {
+					if (!((row_extracted >> r) & 1L)) {
 						col_sum += d_r[r];
-					} else {
-						break;
 					}
 				}
 				if (col_sum == 0) {
@@ -703,19 +700,22 @@ bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, i
 				d_c[j] = 1 / col_sum;
 			}
 		}
-		for (int i = row; i < nov; i++) {
-			double row_sum = 0;
-			int c;
-			for (int j = rptrs[i]; j < rptrs[i+1]; j++) {
-				c = cols[j];
-				if (!((col_extracted >> c) & 1L)) {
-					row_sum += d_c[c];
+		for (int i = 0; i < nov; i++) {
+			if (!((row_extracted >> i) & 1L)) {
+				double row_sum = 0;
+				int c;
+				for (int j = rptrs[i]; j < rptrs[i+1]; j++) {
+					c = cols[j];
+					if (!((col_extracted >> c) & 1L)) {
+						row_sum += d_c[c];
+					}
 				}
+				if (row_sum == 0) {
+					return false;
+				}
+				d_r[i] = 1 / row_sum;
 			}
-			if (row_sum == 0) {
-				return false;
-			}
-			d_r[i] = 1 / row_sum;
+			
 		}
 	}
 
@@ -723,15 +723,17 @@ bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, i
 }
 
 template <class T>
-bool ScaleMatrix(T* M, int nov, int row, long col_extracted, double d_r[], double d_c[], int scale_times) {
+bool ScaleMatrix(T* M, int nov, long row_extracted, long col_extracted, double d_r[], double d_c[], int scale_times) {
 	
 	for (int k = 0; k < scale_times; k++) {
 
 		for (int j = 0; j < nov; j++) {
 			if (!((col_extracted >> j) & 1L)) {
 				double col_sum = 0;
-				for (int i = row; i < nov; i++) {
-					col_sum += d_r[i] * M[i*nov + j];
+				for (int i = 0; i < nov; i++) {
+					if (!((row_extracted >> i) & 1L)) {
+						col_sum += d_r[i] * M[i*nov + j];
+					}
 				}
 				if (col_sum == 0) {
 					return false;
@@ -739,17 +741,19 @@ bool ScaleMatrix(T* M, int nov, int row, long col_extracted, double d_r[], doubl
 				d_c[j] = 1 / col_sum;
 			}
 		}
-		for (int i = row; i < nov; i++) {
-			double row_sum = 0;
-			for (int j = 0; j < nov; j++) {
-				if (!((col_extracted >> j) & 1L)) {
-					row_sum += M[i*nov + j] * d_c[j];
+		for (int i = 0; i < nov; i++) {
+			if (!((row_extracted >> i) & 1L)) {
+				double row_sum = 0;
+				for (int j = 0; j < nov; j++) {
+					if (!((col_extracted >> j) & 1L)) {
+						row_sum += M[i*nov + j] * d_c[j];
+					}
 				}
+				if (row_sum == 0) {
+					return false;
+				}
+				d_r[i] = 1 / row_sum;
 			}
-			if (row_sum == 0) {
-				return false;
-			}
-			d_r[i] = 1 / row_sum;
 		}
 	}
 

@@ -168,7 +168,15 @@ double greedy(T* mat, int nov, int number_of_times) {
   return (sum_perm / number_of_times);
 }
 
-double rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int number_of_times, int threads) {
+template <class T>
+double rasmussen_sparse(T *mat, int *rptrs, int *cols, int nov, int number_of_times, int threads) {
+  T* mat_t = new T[nov * nov];
+  
+  for (int i = 0; i < nov; i++) {
+    for (int j = 0; j < nov; j++) {
+      mat_t[(j * nov) + i] = mat[(i * nov) + j];
+    }
+  }
 
   srand(time(0));
 
@@ -179,14 +187,22 @@ double rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, i
     for (int time = 0; time < number_of_times; time++) {
       int row_nnz[nov];
       long col_extracted = 0;
+      long row_extracted = 0;
+
+      int row;
+      int min=nov+1;
       
       for (int i = 0; i < nov; i++) {
         row_nnz[i] = rptrs[i+1] - rptrs[i];
+        if (min > row_nnz[i]) {
+          min = row_nnz[i];
+          row = i;
+        }
       }
       
       double perm = 1;
       
-      for (int row = 0; row < nov; row++) {
+      for (int i = 0; i < nov; i++) {
         // multiply permanent with number of nonzeros in the current row
         perm *= row_nnz[row];
 
@@ -207,19 +223,25 @@ double rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, i
 
         // exract the column
         col_extracted |= (1L << col);
+        row_extracted |= (1L << row);
+
+        min = nov+1;
 
         // update number of nonzeros of the rows after extracting the column
         bool zero_row = false;
-        for (int i = cptrs[col+1]-1; i >= cptrs[col]; i--) {
-          int r = rows[i];
-          if (r > row) {
-            row_nnz[r]--;
-            if (row_nnz[r] == 0) {
-              zero_row = true;
-              break;
+        for (int r = 0; r < nov; r++) {
+          if (!((row_extracted >> r) & 1L)) {
+            if (mat_t[col * nov + r] != 0) {
+              row_nnz[r]--;
+              if (row_nnz[r] == 0) {
+                zero_row = true;
+                break;
+              }
             }
-          } else {
-            break;
+            if (min > row_nnz[r]) {
+              min = row_nnz[r];
+              row = r;
+            }
           }
         }
 
@@ -233,11 +255,12 @@ double rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, i
       sum_perm += perm;
     }
 
+  delete[] mat_t;
+
   cout << "number of zeros: " << sum_zeros << endl;
   
   return (sum_perm / number_of_times);
 }
-
 
 template <class T>
 double rasmussen(T* mat, int nov, int number_of_times, int threads) {
@@ -346,6 +369,7 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
   #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       long col_extracted = 0;
+      long row_extracted = 0;
 
       double Xa = 1;
       double d_r[nov];
@@ -355,10 +379,31 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
         d_c[i] = 1;
       }
 
-      for (int row = 0; row < nov; row++) {
+      int row;
+      int min;
+      int nnz;
+
+      for (int k = 0; k < nov; k++) {
+        min=nov+1;
+        for (int i = 0; i < nov; i++) {
+          if (!((row_extracted >> i) & 1L)) {
+            nnz = 0;
+            for (int j = rptrs[i]; j < rptrs[i+1]; j++) {
+              int c = cols[j];
+              if (!((col_extracted >> c) & 1L)) {
+                nnz++;
+              }
+            }
+            if (min > nnz) {
+              min = nnz;
+              row = i;
+            }
+          }
+        }
+
         // Scale part
-        if ((scale_intervals != -1 || (scale_intervals == -1 && row == 0)) && row % scale_intervals == 0) {
-          bool success = ScaleMatrix_sparse(cptrs, rows, rptrs, cols, nov, row, col_extracted, d_r, d_c, scale_times);
+        if (row % scale_intervals == 0) {
+          bool success = ScaleMatrix_sparse(cptrs, rows, rptrs, cols, nov, row_extracted, col_extracted, d_r, d_c, scale_times);
           if (!success) {
             Xa = 0;
             sum_zeros++;
@@ -402,6 +447,8 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
         
         // exract the column
         col_extracted |= (1L << col);
+        // exract the row
+        row_extracted |= (1L << row);
 
       }
 
@@ -415,7 +462,6 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
 
 template <class T>
 double approximation_perman64(T* mat, int nov, int number_of_times, int scale_intervals, int scale_times, int threads) {
-
   srand(time(0));
 
   double sum_perm = 0;
@@ -424,6 +470,7 @@ double approximation_perman64(T* mat, int nov, int number_of_times, int scale_in
   #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       long col_extracted = 0;
+      long row_extracted = 0;
 
       double Xa = 1;
       double d_r[nov];
@@ -433,10 +480,29 @@ double approximation_perman64(T* mat, int nov, int number_of_times, int scale_in
         d_c[i] = 1;
       }
 
-      for (int row = 0; row < nov; row++) {
+      int row;
+      int min;
+      int nnz;
+
+      for (int k = 0; k < nov; k++) {
+        min=nov+1;
+        for (int i = 0; i < nov; i++) {
+          if (!((row_extracted >> i) & 1L)) {
+            nnz = 0;
+            for (int j = 0; j < nov; j++) {
+              if (!((col_extracted >> j) & 1L) && mat[(i * nov) + j] != 0) {
+                nnz++;
+              }
+            }
+            if (min > nnz) {
+              min = nnz;
+              row = i;
+            }
+          }
+        }
         // Scale part
-        if ((scale_intervals != -1 || (scale_intervals == -1 && row == 0)) && row % scale_intervals == 0) {
-          bool success = ScaleMatrix(mat, nov, row, col_extracted, d_r, d_c, scale_times);
+        if (row % scale_intervals == 0) {
+          bool success = ScaleMatrix(mat, nov, row_extracted, col_extracted, d_r, d_c, scale_times);
           if (!success) {
             Xa = 0;
             sum_zeros++;
@@ -478,6 +544,8 @@ double approximation_perman64(T* mat, int nov, int number_of_times, int scale_in
         
         // exract the column
         col_extracted |= (1L << col);
+        // exract the row
+        row_extracted |= (1L << row);
 
       }
 
