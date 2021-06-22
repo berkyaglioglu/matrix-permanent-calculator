@@ -490,12 +490,12 @@ int main (int argc, char **argv)
   if (type == "int") {
     int* mat = new int[nov*nov];
     ReadMatrix(mat, inFile, nov, generic);
-    for (int i = 0; i < nov; i++) {
-      for(int j = 0; j < nov; j++) {
-        cout << mat[i*nov+j] << " ";
-      }
-      cout << endl;
-    }
+    //for (int i = 0; i < nov; i++) {
+    //for(int j = 0; j < nov; j++) {
+    //cout << mat[i*nov+j] << " ";
+    //}
+    //cout << endl;
+    //}
 
     int *cvals, *rvals;
     int *cptrs, *rows, *rptrs, *cols;
@@ -520,16 +520,16 @@ int main (int argc, char **argv)
   } else if (type == "float") {
     float* mat = new float[nov*nov];
     ReadMatrix(mat, inFile, nov, generic);
-    for (int i = 0; i < nov; i++) {
-      for(int j = 0; j < nov; j++) {
-        if (mat[i*nov+j] == 0) {
-          cout << "0.0 ";
-        } else {
-          cout << to_string(mat[i*nov+j]).substr(0,3) << " ";
-        }
-      }
-      cout << endl;
-    }
+    //for (int i = 0; i < nov; i++) {
+    //for(int j = 0; j < nov; j++) {
+    //if (mat[i*nov+j] == 0) {
+    //cout << "0.0 ";
+    //} else {
+    //cout << to_string(mat[i*nov+j]).substr(0,3) << " ";
+    //}
+    //}
+    //cout << endl;
+    //}
 
     float *cvals, *rvals;
     int *cptrs, *rows, *rptrs, *cols;
@@ -553,16 +553,16 @@ int main (int argc, char **argv)
   } else if (type == "double") {
     double* mat = new double[nov*nov];
     ReadMatrix(mat, inFile, nov, generic);
-    for (int i = 0; i < nov; i++) {
-      for(int j = 0; j < nov; j++) {
-        if (mat[i*nov+j] == 0) {
-          cout << "0.0 ";
-        } else {
-          cout << to_string(mat[i*nov+j]).substr(0,3) << " ";
-        }
-      }
-      cout << endl;
-    }
+    //for (int i = 0; i < nov; i++) {
+    //for(int j = 0; j < nov; j++) {
+    //if (mat[i*nov+j] == 0) {
+    //cout << "0.0 ";
+    //} else {
+    //cout << to_string(mat[i*nov+j]).substr(0,3) << " ";
+    //}
+    //}
+    //cout << endl;
+    //}
 
     double *cvals, *rvals;
     int *cptrs, *rows, *rptrs, *cols;
