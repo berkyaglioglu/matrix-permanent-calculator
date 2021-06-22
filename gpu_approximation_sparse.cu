@@ -357,7 +357,7 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
       }
     }
     // Scale part
-    if (row % scale_intervals == 0) {
+    if (iter % scale_intervals == 0) {
 
       for (int k = 0; k < scale_times; k++) {
 

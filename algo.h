@@ -410,7 +410,7 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
         }
 
         // Scale part
-        if (row % scale_intervals == 0) {
+        if (time % scale_intervals == 0) {
           bool success = ScaleMatrix_sparse(cptrs, rows, rptrs, cols, nov, row_extracted, col_extracted, d_r, d_c, scale_times);
           if (!success) {
             Xa = 0;
@@ -509,7 +509,7 @@ double approximation_perman64(T* mat, int nov, int number_of_times, int scale_in
           }
         }
         // Scale part
-        if (row % scale_intervals == 0) {
+        if (time % scale_intervals == 0) {
           bool success = ScaleMatrix(mat, nov, row_extracted, col_extracted, d_r, d_c, scale_times);
           if (!success) {
             Xa = 0;
