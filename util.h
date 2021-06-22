@@ -680,17 +680,17 @@ void matrix2compressed_skipOrder(T* mat, int*& cptrs, int*& rows, T*& cvals, int
 	matrix2compressed(mat, cptrs, rows, cvals, rptrs, cols, rvals, nov, nnz);
 }
 
-bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, long row_extracted, long col_extracted, double d_r[], double d_c[], int scale_times) {
+bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, int row_extracted[], int col_extracted[], double d_r[], double d_c[], int scale_times) {
 	
 	for (int k = 0; k < scale_times; k++) {
 
 		for (int j = 0; j < nov; j++) {
-			if (!((col_extracted >> j) & 1L)) {
+			if (!((col_extracted[j / 32] >> (j % 32)) & 1)) {
 				double col_sum = 0;
 				int r;
 				for (int i = cptrs[j]; i < cptrs[j+1]; i++) {
 					r = rows[i];
-					if (!((row_extracted >> r) & 1L)) {
+					if (!((row_extracted[r / 32] >> (r % 32)) & 1)) {
 						col_sum += d_r[r];
 					}
 				}
@@ -701,12 +701,12 @@ bool ScaleMatrix_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int nov, l
 			}
 		}
 		for (int i = 0; i < nov; i++) {
-			if (!((row_extracted >> i) & 1L)) {
+			if (!((row_extracted[i / 32] >> (i % 32)) & 1)) {
 				double row_sum = 0;
 				int c;
 				for (int j = rptrs[i]; j < rptrs[i+1]; j++) {
 					c = cols[j];
-					if (!((col_extracted >> c) & 1L)) {
+					if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
 						row_sum += d_c[c];
 					}
 				}

@@ -186,8 +186,12 @@ double rasmussen_sparse(T *mat, int *rptrs, int *cols, int nov, int number_of_ti
   #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       int row_nnz[nov];
-      long col_extracted = 0;
-      long row_extracted = 0;
+      int col_extracted[21];
+      int row_extracted[21];
+      for (int i = 0; i < 21; i++) {
+        col_extracted[i]=0;
+        row_extracted[i]=0;
+      }
 
       int row;
       int min=nov+1;
@@ -202,7 +206,7 @@ double rasmussen_sparse(T *mat, int *rptrs, int *cols, int nov, int number_of_ti
       
       double perm = 1;
       
-      for (int i = 0; i < nov; i++) {
+      for (int k = 0; k < nov; k++) {
         // multiply permanent with number of nonzeros in the current row
         perm *= row_nnz[row];
 
@@ -211,7 +215,7 @@ double rasmussen_sparse(T *mat, int *rptrs, int *cols, int nov, int number_of_ti
         int col;
         for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
           int c = cols[i];
-          if (!((col_extracted >> c) & 1L)) {
+          if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
             if (random == 0) {
               col = c;
               break;
@@ -222,15 +226,15 @@ double rasmussen_sparse(T *mat, int *rptrs, int *cols, int nov, int number_of_ti
         }
 
         // exract the column
-        col_extracted |= (1L << col);
-        row_extracted |= (1L << row);
+        col_extracted[col / 32] |= (1 << (col % 32));
+        row_extracted[row / 32] |= (1 << (row % 32));
 
         min = nov+1;
 
         // update number of nonzeros of the rows after extracting the column
         bool zero_row = false;
         for (int r = 0; r < nov; r++) {
-          if (!((row_extracted >> r) & 1L)) {
+          if (!((row_extracted[r / 32] >> (r % 32)) & 1)) {
             if (mat_t[col * nov + r] != 0) {
               row_nnz[r]--;
               if (row_nnz[r] == 0) {
@@ -368,8 +372,12 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
     
   #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
-      long col_extracted = 0;
-      long row_extracted = 0;
+      int col_extracted[21];
+      int row_extracted[21];
+      for (int i = 0; i < 21; i++) {
+        col_extracted[i]=0;
+        row_extracted[i]=0;
+      }
 
       double Xa = 1;
       double d_r[nov];
@@ -386,11 +394,11 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
       for (int k = 0; k < nov; k++) {
         min=nov+1;
         for (int i = 0; i < nov; i++) {
-          if (!((row_extracted >> i) & 1L)) {
+          if (!((row_extracted[i / 32] >> (i % 32)) & 1)) {
             nnz = 0;
             for (int j = rptrs[i]; j < rptrs[i+1]; j++) {
               int c = cols[j];
-              if (!((col_extracted >> c) & 1L)) {
+              if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
                 nnz++;
               }
             }
@@ -415,7 +423,7 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
         double sum_row_of_S = 0;
         for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
           int c = cols[i];
-          if (!((col_extracted >> c) & 1L)) {
+          if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
             sum_row_of_S += d_r[row] * d_c[c];
           }
         }
@@ -431,7 +439,7 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
         int col;
         for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
           int c = cols[i];
-          if (!((col_extracted >> c) & 1L)) {
+          if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
             s = d_r[row] * d_c[c];
             temp += s;
             if (random <= temp) {
@@ -446,9 +454,9 @@ double approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int *col
         Xa /= pj;
         
         // exract the column
-        col_extracted |= (1L << col);
+        col_extracted[col / 32] |= (1 << (col % 32));
         // exract the row
-        row_extracted |= (1L << row);
+        row_extracted[row / 32] |= (1 << (row % 32));
 
       }
 

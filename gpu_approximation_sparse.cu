@@ -16,15 +16,27 @@ double cpu_rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int no
   #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
       int row_nnz[nov];
-      long col_extracted = 0;
-      
+      int col_extracted[21];
+      int row_extracted[21];
+      for (int i = 0; i < 21; i++) {
+        col_extracted[i]=0;
+        row_extracted[i]=0;
+      }
+
+      int row;
+      int min=nov+1;
+
       for (int i = 0; i < nov; i++) {
         row_nnz[i] = rptrs[i+1] - rptrs[i];
+        if (min > row_nnz[i]) {
+          min = row_nnz[i];
+          row = i;
+        }
       }
       
       double perm = 1;
       
-      for (int row = 0; row < nov; row++) {
+      for (int k = 0; k < nov; k++) {
         // multiply permanent with number of nonzeros in the current row
         perm *= row_nnz[row];
 
@@ -33,7 +45,7 @@ double cpu_rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int no
         int col;
         for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
           int c = cols[i];
-          if (!((col_extracted >> c) & 1L)) {
+          if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
             if (random == 0) {
               col = c;
               break;
@@ -44,20 +56,25 @@ double cpu_rasmussen_sparse(int *cptrs, int *rows, int *rptrs, int *cols, int no
         }
 
         // exract the column
-        col_extracted |= (1L << col);
+        col_extracted[col / 32] |= (1 << (col % 32));
+        row_extracted[row / 32] |= (1 << (row % 32));
+
+        min = nov+1;
 
         // update number of nonzeros of the rows after extracting the column
         bool zero_row = false;
-        for (int i = cptrs[col+1]-1; i >= cptrs[col]; i--) {
+        for (int i = cptrs[col]; i < cptrs[col+1]; i++) {
           int r = rows[i];
-          if (r > row) {
+          if (!((row_extracted[r / 32] >> (r % 32)) & 1)) {
             row_nnz[r]--;
             if (row_nnz[r] == 0) {
               zero_row = true;
               break;
             }
-          } else {
-            break;
+            if (min > row_nnz[r]) {
+              min = row_nnz[r];
+              row = r;
+            }
           }
         }
 
@@ -83,7 +100,12 @@ double cpu_approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int 
     
   #pragma omp parallel for num_threads(threads) reduction(+:sum_perm) reduction(+:sum_zeros)
     for (int time = 0; time < number_of_times; time++) {
-      long col_extracted = 0;
+      int col_extracted[21];
+      int row_extracted[21];
+      for (int i = 0; i < 21; i++) {
+        col_extracted[i]=0;
+        row_extracted[i]=0;
+      }
 
       double Xa = 1;
       double d_r[nov];
@@ -93,10 +115,31 @@ double cpu_approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int 
         d_c[i] = 1;
       }
 
-      for (int row = 0; row < nov; row++) {
+      int row;
+      int min;
+      int nnz;
+
+      for (int k = 0; k < nov; k++) {
+        min=nov+1;
+        for (int i = 0; i < nov; i++) {
+          if (!((row_extracted[i / 32] >> (i % 32)) & 1)) {
+            nnz = 0;
+            for (int j = rptrs[i]; j < rptrs[i+1]; j++) {
+              int c = cols[j];
+              if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
+                nnz++;
+              }
+            }
+            if (min > nnz) {
+              min = nnz;
+              row = i;
+            }
+          }
+        }
+
         // Scale part
-        if ((scale_intervals != -1 || (scale_intervals == -1 && row == 0)) && row % scale_intervals == 0) {
-          bool success = ScaleMatrix_sparse(cptrs, rows, rptrs, cols, nov, row, col_extracted, d_r, d_c, scale_times);
+        if (row % scale_intervals == 0) {
+          bool success = ScaleMatrix_sparse(cptrs, rows, rptrs, cols, nov, row_extracted, col_extracted, d_r, d_c, scale_times);
           if (!success) {
             Xa = 0;
             sum_zeros++;
@@ -108,7 +151,7 @@ double cpu_approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int 
         double sum_row_of_S = 0;
         for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
           int c = cols[i];
-          if (!((col_extracted >> c) & 1L)) {
+          if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
             sum_row_of_S += d_r[row] * d_c[c];
           }
         }
@@ -124,7 +167,7 @@ double cpu_approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int 
         int col;
         for (int i = rptrs[row]; i < rptrs[row+1]; i++) {
           int c = cols[i];
-          if (!((col_extracted >> c) & 1L)) {
+          if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
             s = d_r[row] * d_c[c];
             temp += s;
             if (random <= temp) {
@@ -139,7 +182,9 @@ double cpu_approximation_perman64_sparse(int *cptrs, int *rows, int *rptrs, int 
         Xa /= pj;
         
         // exract the column
-        col_extracted |= (1L << col);
+        col_extracted[col / 32] |= (1 << (col % 32));
+        // exract the row
+        row_extracted[row / 32] |= (1 << (row % 32));
 
       }
 
@@ -180,8 +225,12 @@ __global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int no
   curandState_t state;
   curand_init(rand*tid,0,0,&state);
 
-  long col_extracted = 0;
-  long row_extracted = 0;
+  int col_extracted[21];
+  int row_extracted[21];
+  for (int i = 0; i < 21; i++) {
+    col_extracted[i]=0;
+    row_extracted[i]=0;
+  }
   
   double perm = 1;
   int row;
@@ -191,11 +240,11 @@ __global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int no
     int min_nnz = nov+1;
     int nnz;
     for (int r = 0; r < nov; r++) {
-      if (!((row_extracted >> r) & 1L)) {
+      if (!((row_extracted[r / 32] >> (r % 32)) & 1)) {
         nnz = 0;
         for (int i = shared_rptrs[r]; i < shared_rptrs[r+1]; i++) {
           int c = shared_cols[i];
-          if (!((col_extracted >> c) & 1L)) {
+          if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
             nnz++;
           }
         }
@@ -221,7 +270,7 @@ __global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int no
     }
     for (int i = shared_rptrs[row]; i < shared_rptrs[row+1]; i++) {
       int c = shared_cols[i];
-      if (!((col_extracted >> c) & 1L)) {
+      if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
         if (random == 0) {
           col = c;
           break;
@@ -232,9 +281,9 @@ __global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int no
     }
 
     // exract the column
-    col_extracted |= (1L << col);
+    col_extracted[col / 32] |= (1 << (col % 32));
     // exract the row
-    row_extracted |= (1L << row);
+    row_extracted[row / 32] |= (1 << (row % 32));
   }
 
   p[tid] = perm;
@@ -242,8 +291,6 @@ __global__ void kernel_rasmussen_sparse(int* rptrs, int* cols, double* p, int no
 
 __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, int* rows, double* p, float* d_r, float* d_c, int nov, int nnz, int scale_intervals, int scale_times, int rand) {
   int tid = threadIdx.x + (blockIdx.x * blockDim.x);
-  int thread_id = threadIdx.x;
-  int block_dim = blockDim.x;
 
   extern __shared__ float shared_mem[]; 
   int *shared_rptrs = (int*) shared_mem; // size = nov + 1
@@ -258,14 +305,14 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
     max = nov + 1;
   }
 
-  for (int k = 0; k < (max / block_dim + 1); k++) {
-    if ((block_dim * k + thread_id) < nnz) {
-      shared_cols[block_dim * k + thread_id] = cols[block_dim * k + thread_id];
-      shared_rows[block_dim * k + thread_id] = rows[block_dim * k + thread_id];
+  for (int k = 0; k < (max / blockDim.x + 1); k++) {
+    if ((blockDim.x * k + threadIdx.x) < nnz) {
+      shared_cols[blockDim.x * k + threadIdx.x] = cols[blockDim.x * k + threadIdx.x];
+      shared_rows[blockDim.x * k + threadIdx.x] = rows[blockDim.x * k + threadIdx.x];
     }
-    if ((block_dim * k + thread_id) < (nov + 1)) {
-      shared_rptrs[block_dim * k + thread_id] = rptrs[block_dim * k + thread_id];
-      shared_cptrs[block_dim * k + thread_id] = cptrs[block_dim * k + thread_id];
+    if ((blockDim.x * k + threadIdx.x) < (nov + 1)) {
+      shared_rptrs[blockDim.x * k + threadIdx.x] = rptrs[blockDim.x * k + threadIdx.x];
+      shared_cptrs[blockDim.x * k + threadIdx.x] = cptrs[blockDim.x * k + threadIdx.x];
     }
   }
 
@@ -274,8 +321,13 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
   curandState_t state;
   curand_init(rand*tid,0,0,&state);
 
-  long col_extracted = 0;
-  long row_extracted = 0;
+  int col_extracted[21];
+  int row_extracted[21];
+  for (int i = 0; i < 21; i++) {
+    col_extracted[i]=0;
+    row_extracted[i]=0;
+  }
+
   bool is_break;
   for (int i = 0; i < nov; i++) {
     d_r[tid*nov + i] = 1;
@@ -283,24 +335,23 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
   }
   
   double perm = 1;
-  double col_sum, row_sum;
+  float col_sum, row_sum;
   int row;
   int min;
-  int nnz_curr;
   
   for (int iter = 0; iter < nov; iter++) {
     min=nov+1;
     for (int i = 0; i < nov; i++) {
-      if (!((row_extracted >> i) & 1L)) {
-        nnz_curr = 0;
+      if (!((row_extracted[i / 32] >> (i % 32)) & 1)) {
+        nnz = 0;
         for (int j = shared_rptrs[i]; j < shared_rptrs[i+1]; j++) {
           int c = shared_cols[j];
-          if (!((col_extracted >> c) & 1L)) {
-            nnz_curr++;
+          if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
+            nnz++;
           }
         }
-        if (min > nnz_curr) {
-          min = nnz_curr;
+        if (min > nnz) {
+          min = nnz;
           row = i;
         }
       }
@@ -311,12 +362,12 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
       for (int k = 0; k < scale_times; k++) {
 
         for (int j = 0; j < nov; j++) {
-          if (!((col_extracted >> j) & 1L)) {
+          if (!((col_extracted[j / 32] >> (j % 32)) & 1)) {
             col_sum = 0;
             int r;
             for (int i = shared_cptrs[j]; i < shared_cptrs[j+1]; i++) {
               r = shared_rows[i];
-              if (!((row_extracted >> r) & 1L)) {
+              if (!((row_extracted[r / 32] >> (r % 32)) & 1)) {
                 col_sum += d_r[tid*nov + r];
               }
             }
@@ -332,12 +383,12 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
         }
 
         for (int i = 0; i < nov; i++) {
-          if (!((row_extracted >> i) & 1L)) {
+          if (!((row_extracted[i / 32] >> (i % 32)) & 1)) {
             row_sum = 0;
             int c;
             for (int j = shared_rptrs[i]; j < shared_rptrs[i+1]; j++) {
               c = shared_cols[j];
-              if (!((col_extracted >> c) & 1L)) {
+              if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
                 row_sum += d_c[tid*nov + c];
               }
             }
@@ -364,7 +415,7 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
     double sum_row_of_S = 0;
     for (int i = shared_rptrs[row]; i < shared_rptrs[row+1]; i++) {
       int c = shared_cols[i];
-      if (!((col_extracted >> c) & 1L)) {
+      if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
         sum_row_of_S += d_r[tid*nov + row] * d_c[tid*nov + c];
       }
     }
@@ -379,24 +430,22 @@ __global__ void kernel_approximation_sparse(int* rptrs, int* cols, int* cptrs, i
     int col;
     for (int i = shared_rptrs[row]; i < shared_rptrs[row+1]; i++) {
       int c = shared_cols[i];
-      if (!((col_extracted >> c) & 1L)) {
+      if (!((col_extracted[c / 32] >> (c % 32)) & 1)) {
         s = d_r[tid*nov + row] * d_c[tid*nov + c];
         temp += s;
         if (random <= temp) {
           col = c;
-          pj = s / sum_row_of_S;
+          // update perm
+          perm /= (s / sum_row_of_S);
           break;
         }
       }
     }
 
-    // update perm
-    perm /= pj;
-
     // exract the column
-    col_extracted |= (1L << col);
+    col_extracted[col / 32] |= (1 << (col % 32));
     // exract the row
-    row_extracted |= (1L << row);
+    row_extracted[row / 32] |= (1 << (row % 32));
   }
 
   p[tid] = perm;
