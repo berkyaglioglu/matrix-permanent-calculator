@@ -748,6 +748,7 @@ double parallel_perman64(T* mat, int nov, int threads) {
 template <class T>
 double parallel_skip_perman64_w(int *rptrs, int *cols, T *rvals, int *cptrs, int *rows, T *cvals, int nov, int threads) {
   //first initialize the vector then we will copy it to ourselves
+  std::cout << "I'm here " << std::endl;
   double rs, x[64], p;
   int j, ptr;
   unsigned long long ci, start, end, chunk_size, change_j;

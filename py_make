@@ -1,0 +1,1 @@
+g++ -shared -o libConnect.so py_connector.c -fPIC -O3 -fopenmp

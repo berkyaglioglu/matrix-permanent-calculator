@@ -23,6 +23,9 @@ using namespace std;
 
 string seperator = "************************************************************************";
 
+void shell(){
+  std::cout << "I am just an empty shell of a man" << std::endl;
+}
 
 void match(int* col_ptrs, int* col_ids, int* match, int* row_match, int n, int m) {
   int* visited = (int*)malloc(sizeof(int) * m);
